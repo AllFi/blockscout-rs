@@ -25,7 +25,6 @@ services:
     environment:
       ## optional: if provided, would be used as a configuration file
       DA_INDEXER__CONFIG: /app/config.toml
-      DA_INDEXER__CELESTIA_INDEXER__RPC__URL: http://host.docker.internal:26658
       DA_INDEXER__DATABASE__CONNECT__URL: postgres://postgres:@database:5432/blockscout
       DA_INDEXER__DATABASE__CREATE_DATABASE: "true"
       DA_INDEXER__DATABASE__RUN_MIGRATIONS: "true"

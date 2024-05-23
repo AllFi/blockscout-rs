@@ -7,12 +7,14 @@ max_body_size = 2097152
 enabled = false
 addr = "0.0.0.0:8051"
 
-[celestia_indexer]
-concurrency = 30
+[indexer]
+concurrency = 1
 
-[celestia_indexer.rpc]
-url = "http://localhost:26658"
-auth_token = ""
+[indexer.da]
+type = "Celestia"
+
+[indexer.da.rpc]
+url = "http://host.docker.internal:26658"
 
 [database]
 connect.url = "postgres://postgres:admin@127.0.0.1:9432/blockscout" # (required) no default value available

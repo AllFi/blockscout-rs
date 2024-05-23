@@ -1,9 +1,19 @@
-use std::{cmp::{max, min}, sync::atomic::AtomicU64, time::Duration};
+use std::{
+    cmp::{max, min},
+    sync::atomic::AtomicU64,
+    time::Duration,
+};
 
 use super::{client::Client, common_transport::CommonTransport, settings::IndexerSettings};
 use anyhow::{bail, Error, Result};
-use ethers::{providers::{Middleware, Provider}, types::{Address, Filter, Log, Topic}};
-use futures::{stream::{self, repeat_with, BoxStream}, Stream, StreamExt};
+use ethers::{
+    providers::{Middleware, Provider},
+    types::{Address, Filter, Log, Topic},
+};
+use futures::{
+    stream::{self, repeat_with, BoxStream},
+    Stream, StreamExt,
+};
 use tokio::time::sleep;
 use tracing::instrument;
 
@@ -11,7 +21,6 @@ pub struct Job {
     batch_header_hash: Vec<u8>,
     tx_hash: ethers::types::H256,
 }
-
 
 impl TryFrom<Log> for Job {
     type Error = anyhow::Error;
@@ -52,7 +61,7 @@ impl Indexer {
             settings,
             client,
             provider,
-            last_known_block: AtomicU64::new(1589491), 
+            last_known_block: AtomicU64::new(1589491),
         })
     }
 
@@ -91,7 +100,10 @@ impl Indexer {
 
     async fn process_job(&self, job: &Job) -> Result<()> {
         tracing::info!(tx_hash = ?job.tx_hash, "processing job");
-        let blobs = self.client.retrieve_blobs(job.batch_header_hash.clone()).await?;
+        let blobs = self
+            .client
+            .retrieve_blobs(job.batch_header_hash.clone())
+            .await?;
         tracing::info!(count = blobs.len(), "retrieved blobs");
         Ok(())
     }
@@ -102,19 +114,23 @@ impl Indexer {
 
             // TODO: fix me
             let last_block = self.provider.get_block_number().await?.as_u64();
-            let from = self.last_known_block.load(std::sync::atomic::Ordering::Relaxed);
+            let from = self
+                .last_known_block
+                .load(std::sync::atomic::Ordering::Relaxed);
             let to = min(from + self.settings.rpc.batch_size, last_block);
 
             let filter = Filter::new()
-                .address(self.settings.contract_address.clone().parse::<Address>().unwrap())
+                .address(
+                    self.settings
+                        .contract_address
+                        .clone()
+                        .parse::<Address>()
+                        .unwrap(),
+                )
                 .event("BatchConfirmed(bytes32,uint32)")
                 .from_block(from)
                 .to_block(to);
-            tracing::info!(
-                from,
-                to,
-                "fetching past BeforeExecution logs from rpc"
-            );
+            tracing::info!(from, to, "fetching past BeforeExecution logs from rpc");
 
             let jobs: Vec<Job> = self
                 .provider
@@ -124,7 +140,8 @@ impl Indexer {
                 .filter_map(|log| Job::try_from(log).ok())
                 .collect();
             tracing::info!(count = jobs.len(), "fetched past BeforeExecution logs");
-            self.last_known_block.store(to, std::sync::atomic::Ordering::Relaxed);
+            self.last_known_block
+                .store(to, std::sync::atomic::Ordering::Relaxed);
             Ok(jobs)
         })
         .filter_map(|fut| async {

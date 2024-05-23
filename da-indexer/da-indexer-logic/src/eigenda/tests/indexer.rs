@@ -8,7 +8,8 @@ pub async fn indexer_test() {
         "eigenda_indexer",
         &TracingSettings::default(),
         &JaegerSettings::default(),
-    ).unwrap();
+    )
+    .unwrap();
     let indexer = Indexer::new(IndexerSettings::default()).await.unwrap();
     indexer.start().await.unwrap();
 }
