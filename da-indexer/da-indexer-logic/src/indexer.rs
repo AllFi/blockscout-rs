@@ -1,28 +1,25 @@
 use anyhow::{Error, Result};
+use async_trait::async_trait;
 use futures::{
     stream,
     stream::{repeat_with, BoxStream},
     Stream, StreamExt,
 };
 use sea_orm::DatabaseConnection;
-use std::{
-    collections::HashSet,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use std::{fmt::Debug, hash::Hash};
 use tokio::{sync::RwLock, time::sleep};
 use tracing::instrument;
-use async_trait::async_trait;
 
-use crate::{celestia, settings::{DASettings, IndexerSettings}};
+use crate::{
+    celestia, eigenda,
+    settings::{DASettings, IndexerSettings},
+};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct Job {
-    pub height: u64,
+pub enum Job {
+    Celestia(celestia::da::CelestiaJob),
+    EigenDA(eigenda::da::EigenDAJob),
 }
 
 #[async_trait]
@@ -36,24 +33,23 @@ pub struct Indexer {
     da: Box<dyn DA + Send + Sync>,
     settings: IndexerSettings,
 
-    failed_blocks: RwLock<HashSet<Job>>,
+    failed_jobs: RwLock<HashSet<Job>>,
 }
 
 impl Indexer {
     pub async fn new(db: Arc<DatabaseConnection>, settings: IndexerSettings) -> Result<Self> {
-        tracing::info!("HELLO THERE");
-        let da = match settings.da.clone() {
+        let da: Box<dyn DA + Send + Sync> = match settings.da.clone() {
             DASettings::Celestia(settings) => {
                 Box::new(celestia::da::CelestiaDA::new(db.clone(), settings).await?)
             }
             DASettings::EigenDA(settings) => {
-                unimplemented!()
+                Box::new(eigenda::da::EigenDA::new(db.clone(), settings).await?)
             }
         };
         Ok(Self {
-            da: da,
+            da,
             settings,
-            failed_blocks: RwLock::new(HashSet::new()),
+            failed_jobs: RwLock::new(HashSet::new()),
         })
     }
 
@@ -79,7 +75,7 @@ impl Indexer {
             match backoff.next() {
                 None => {
                     tracing::warn!(error = ?err, job = ?job, "failed to process job, skipping for now, will retry later");
-                    self.failed_blocks.write().await.insert(job.clone());
+                    self.failed_jobs.write().await.insert(job.clone());
                     break;
                 }
                 Some(delay) => {
@@ -119,7 +115,7 @@ impl Indexer {
             // we can safely drain the failed blocks here
             // if the block fails again, it will be re-added
             // if the indexer will be restarted, catch_up will take care of it
-            let iter = self.failed_blocks.write().await.drain().collect::<Vec<_>>();
+            let iter = self.failed_jobs.write().await.drain().collect::<Vec<_>>();
             tracing::info!("retrying failed jobs: {:?}", iter);
             Ok(iter)
         })

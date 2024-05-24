@@ -11,9 +11,8 @@ impl MigrationTrait for Migration {
                 "batch_header_hash" bytea PRIMARY KEY,
                 "batch_id" bigint NOT NULL,
                 "blobs_count" integer NOT NULL,
-                "timestamp" bigint NOT NULL,
                 "l1_tx_hash" bytea NOT NULL,
-                "indexing_status" integer NOT NULL
+                "l1_block" bigint NOT NULL
             );
             
             CREATE TABLE "eigenda_blobs" (

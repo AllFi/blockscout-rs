@@ -1,29 +1,43 @@
-use anyhow::{Result};
+use anyhow::Result;
+use async_trait::async_trait;
 use celestia_rpc::{Client, HeaderClient, ShareClient};
 use celestia_types::{Blob, ExtendedHeader};
 use sea_orm::{DatabaseConnection, TransactionTrait};
-use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
 };
-use async_trait::async_trait;
 
-use crate::{celestia::{repository::blobs, rpc_client}, indexer::{Job, DA}};
+use crate::{
+    celestia::{repository::blobs, rpc_client},
+    indexer::{Job, DA},
+};
 
 use super::{parser, repository::blocks, settings::IndexerSettings};
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct CelestiaJob {
+    pub height: u64,
+}
+
+impl From<Job> for CelestiaJob {
+    fn from(val: Job) -> Self {
+        match val {
+            Job::Celestia(job) => job,
+            _ => unreachable!(),
+        }
+    }
+}
 
 pub struct CelestiaDA {
     client: Client,
     db: Arc<DatabaseConnection>,
-    settings: IndexerSettings,
 
     last_known_height: AtomicU64,
 }
 
 impl CelestiaDA {
-    pub async fn new(db: Arc<DatabaseConnection>, settings: IndexerSettings) -> Result<impl DA> {
+    pub async fn new(db: Arc<DatabaseConnection>, settings: IndexerSettings) -> Result<Self> {
         let client = rpc_client::new_celestia_client(
             &settings.rpc.url,
             settings.rpc.auth_token.as_deref(),
@@ -46,7 +60,6 @@ impl CelestiaDA {
         Ok(Self {
             client,
             db,
-            settings,
             last_known_height: AtomicU64::new(start_from.saturating_sub(1)),
         })
     }
@@ -66,8 +79,8 @@ impl CelestiaDA {
 
 #[async_trait]
 impl DA for CelestiaDA {
-
     async fn process_job(&self, job: Job) -> anyhow::Result<()> {
+        let job: CelestiaJob = job.into();
         let (header, blobs) = self.get_blobs_by_height(job.height).await?;
 
         let txn = self.db.begin().await?;
@@ -103,7 +116,9 @@ impl DA for CelestiaDA {
         tracing::info!(height, "latest block");
 
         let from = self.last_known_height.swap(height, Ordering::SeqCst) + 1;
-        Ok((from..=height).map(|height| Job { height }).collect())
+        Ok((from..=height)
+            .map(|height| Job::Celestia(CelestiaJob { height }))
+            .collect())
     }
 
     async fn unprocessed_jobs(&self) -> anyhow::Result<Vec<Job>> {
@@ -120,8 +135,10 @@ impl DA for CelestiaDA {
         Ok(gaps
             .into_iter()
             .flat_map(|gap| {
-                (gap.gap_start..=gap.gap_end).map(|height| Job {
-                    height: height as u64,
+                (gap.gap_start..=gap.gap_end).map(|height| {
+                    Job::Celestia(CelestiaJob {
+                        height: height as u64,
+                    })
                 })
             })
             .rev()

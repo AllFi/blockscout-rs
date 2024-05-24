@@ -3,7 +3,7 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "celestia_blobs")]
+#[sea_orm(table_name = "eigenda_blobs")]
 pub struct Model {
     #[sea_orm(
         primary_key,
@@ -11,11 +11,9 @@ pub struct Model {
         column_type = "Binary(BlobSize::Blob(None))"
     )]
     pub id: Vec<u8>,
-    pub height: i64,
     #[sea_orm(column_type = "Binary(BlobSize::Blob(None))")]
-    pub namespace: Vec<u8>,
-    #[sea_orm(column_type = "Binary(BlobSize::Blob(None))")]
-    pub commitment: Vec<u8>,
+    pub batch_header_hash: Vec<u8>,
+    pub blob_index: i32,
     #[sea_orm(column_type = "Binary(BlobSize::Blob(None))")]
     pub data: Vec<u8>,
 }
@@ -23,18 +21,18 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::celestia_blocks::Entity",
-        from = "Column::Height",
-        to = "super::celestia_blocks::Column::Height",
+        belongs_to = "super::eigenda_batches::Entity",
+        from = "Column::BatchHeaderHash",
+        to = "super::eigenda_batches::Column::BatchHeaderHash",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    CelestiaBlocks,
+    EigendaBatches,
 }
 
-impl Related<super::celestia_blocks::Entity> for Entity {
+impl Related<super::eigenda_batches::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::CelestiaBlocks.def()
+        Relation::EigendaBatches.def()
     }
 }
 

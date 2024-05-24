@@ -13,8 +13,7 @@ pub async fn run(
 
     // If the first connect fails, the function will return an error immediately.
     // All subsequent reconnects are done inside tokio task and will not propagate to above.
-    let mut indexer =
-        Indexer::new(db_connection.clone(), settings.indexer.clone()).await?;
+    let mut indexer = Indexer::new(db_connection.clone(), settings.indexer.clone()).await?;
     let delay = settings.indexer.restart_delay;
 
     tokio::spawn(async move {

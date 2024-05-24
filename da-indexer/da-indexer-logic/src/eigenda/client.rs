@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use self::disperser::{
-    disperser_client::DisperserClient, disperser_server::Disperser, RetrieveBlobRequest,
-};
+use self::disperser::{disperser_client::DisperserClient, RetrieveBlobRequest};
 use anyhow::Result;
 use tokio::time::sleep;
 use tonic::{transport::Channel, Status};
@@ -93,7 +91,7 @@ impl Client {
     ) -> Result<Vec<u8>, Status> {
         let retrieve_request = tonic::Request::new(RetrieveBlobRequest {
             batch_header_hash: batch_header_hash.clone(),
-            blob_index: blob_index as u32,
+            blob_index,
         });
         client
             .retrieve_blob(retrieve_request)
