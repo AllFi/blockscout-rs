@@ -19,21 +19,6 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::eigenda_batches::Entity",
-        from = "Column::BatchHeaderHash",
-        to = "super::eigenda_batches::Column::BatchHeaderHash",
-        on_update = "NoAction",
-        on_delete = "NoAction"
-    )]
-    EigendaBatches,
-}
-
-impl Related<super::eigenda_batches::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::EigendaBatches.def()
-    }
-}
+pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}

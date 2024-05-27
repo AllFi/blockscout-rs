@@ -9,6 +9,7 @@ pub struct IndexerSettings {
     pub contract_address: String,
     pub rpc: RpcSettings,
     pub start_height: Option<u64>,
+    pub contract_creation_block: u64,
 }
 
 #[serde_as]
@@ -29,6 +30,7 @@ impl Default for IndexerSettings {
                 batch_size: 10000,
             },
             start_height: None,
+            contract_creation_block: 1168412,
         }
     }
 }

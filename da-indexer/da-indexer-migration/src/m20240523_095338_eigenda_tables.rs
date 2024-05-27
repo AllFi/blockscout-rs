@@ -8,8 +8,8 @@ impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let sql = r#"
             CREATE TABLE "eigenda_batches" (
-                "batch_header_hash" bytea PRIMARY KEY,
-                "batch_id" bigint NOT NULL,
+                "batch_id" bigint PRIMARY KEY,
+                "batch_header_hash" bytea NOT NULL,
                 "blobs_count" integer NOT NULL,
                 "l1_tx_hash" bytea NOT NULL,
                 "l1_block" bigint NOT NULL
@@ -17,7 +17,7 @@ impl MigrationTrait for Migration {
             
             CREATE TABLE "eigenda_blobs" (
                 "id" bytea PRIMARY KEY,
-                "batch_header_hash" bytea NOT NULL references "eigenda_batches"("batch_header_hash"),
+                "batch_header_hash" bytea NOT NULL,
                 "blob_index" integer NOT NULL,
                 "data" bytea NOT NULL
             );
