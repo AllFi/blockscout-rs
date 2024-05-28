@@ -144,22 +144,24 @@ impl DA for EigenDA {
             .await?;
         tracing::info!(count = blobs.len(), "retrieved blobs");
 
-        let txn = self.db.begin().await?;
-
+        let blobs_len = blobs.len();
+        if !blobs.is_empty() {
+            let chunk_size = 50;
+            for (chunk_index, chunk) in blobs.chunks(chunk_size).enumerate() {
+                let start_index = chunk_index * chunk_size;
+                blobs::upsert_many(self.db.as_ref(), start_index as i32, &job.batch_header_hash, chunk.to_vec()).await?;
+            }
+        }
+        
         batches::upsert(
-            &txn,
+            self.db.as_ref(),
             &job.batch_header_hash,
             job.batch_id as i64,
-            blobs.len() as i32,
+            blobs_len as i32,
             &job.tx_hash.as_bytes(),
             job.block_number as i64,
         )
         .await?;
-
-        if !blobs.is_empty() {
-            blobs::upsert_many(&txn, &job.batch_header_hash, blobs).await?;
-        }
-        txn.commit().await?;
 
         Ok(())
     }
@@ -182,8 +184,6 @@ impl DA for EigenDA {
     }
 
     async fn unprocessed_jobs(&self) -> Result<Vec<Job>> {
-        // TODO: this function is not correct. Some batches are processed multiple times. Fix it.
-        // Something definitely off here
         let gaps = batches::find_gaps(
             &self.db,
             self.settings.contract_creation_block as i64,

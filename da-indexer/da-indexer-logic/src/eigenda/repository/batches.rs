@@ -43,7 +43,7 @@ pub async fn find_gaps(
                 &gaps[..],
             ]
             .concat();
-        },
+        }
         None => {
             gaps = [
                 &[Gap {
@@ -53,13 +53,16 @@ pub async fn find_gaps(
                 &gaps[..],
             ]
             .concat();
-        },
+        }
         _ => {}
     }
     println!("2: {:?}", gaps);
 
     // adding the gap between the last saved batch and the to_block
-    let gaps_end = gaps.last().map(|gap| gap.gap_end).unwrap_or(contract_creation_block);
+    let gaps_end = gaps
+        .last()
+        .map(|gap| gap.gap_end)
+        .unwrap_or(contract_creation_block);
     match find_max_l1_block_in_range(db, gaps_end, to_block).await? {
         Some(max_height) if max_height < to_block => {
             gaps.push(Gap {

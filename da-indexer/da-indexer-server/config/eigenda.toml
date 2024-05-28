@@ -16,7 +16,7 @@ type = "EigenDA"
 disperser = "https://disperser-holesky.eigenda.xyz:443"
 contract_address = "0xD4A7E1Bd8015057293f0D0A557088c286942e84b"
 contract_creation_block = 1168412
-start_height = 1622210
+#start_height = 1626773
 
 [indexer.da.rpc]
 url = "https://holesky.drpc.org"

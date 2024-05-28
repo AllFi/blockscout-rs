@@ -1,8 +1,7 @@
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::{
-    stream,
-    stream::{repeat_with, BoxStream},
+    stream::{self, repeat_with, select_with_strategy, BoxStream, PollNext},
     Stream, StreamExt,
 };
 use sea_orm::DatabaseConnection;
@@ -57,9 +56,15 @@ impl Indexer {
     pub async fn start(&self) -> anyhow::Result<()> {
         let mut stream = stream::SelectAll::<BoxStream<Job>>::new();
         stream.push(Box::pin(self.catch_up().await?));
-        stream.push(Box::pin(self.poll_for_new_blocks()));
         stream.push(Box::pin(self.retry_failed_blocks()));
 
+        // The idea is to prioritize new blocks over catchup and failed block
+        // So we are doing catchup and failed blocks while waiting for new blocks
+        fn prio_left(_: &mut ()) -> PollNext {
+            PollNext::Left
+        }
+        let stream = select_with_strategy(Box::pin(self.poll_for_new_blocks()), stream, prio_left);
+        
         stream
             .for_each_concurrent(Some(self.settings.concurrency as usize), |job| async move {
                 self.process_job_with_retries(&job).await
