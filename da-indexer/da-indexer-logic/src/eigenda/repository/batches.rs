@@ -24,7 +24,7 @@ pub async fn find_gaps(
         FROM (
             SELECT batch_id, l1_block, lead(batch_id) OVER (ORDER BY batch_id) as next_batch_id, 
                 lead(l1_block) OVER (ORDER BY batch_id) as next_l1_block
-            FROM eigenda_batches WHERE l1_block <= 1601513
+            FROM eigenda_batches WHERE l1_block <= $1
         ) nr
         WHERE nr.batch_id + 1 <> nr.next_batch_id ORDER BY nr.batch_id;"#,
         [to_block.into()],
@@ -32,20 +32,6 @@ pub async fn find_gaps(
     .all(db)
     .await?;
     println!("1: {:?}", gaps);
-
-    // adding the gap between the contract creation block and the first saved batch
-    // let (min_batch_id, min_l1_block) = find_min_batch_id(db).await?.unwrap_or((1, to_block + 1));
-    // if min_batch_id > 0 {
-    //     gaps = [
-    //         &[Gap {
-    //             gap_start: contract_creation_block,
-    //             gap_end: min_l1_block - 1,
-    //         }],
-    //         &gaps[..],
-    //     ]
-    //     .concat();
-    // }
-    // println!("2: {:?}", gaps);
 
     match find_min_batch_id(db).await? {
         Some((min_batch_id, min_l1_block)) if min_batch_id > 0 => {

@@ -74,7 +74,7 @@ impl EigenDA {
         let transport = CommonTransport::new(settings.rpc.url.clone()).await?;
         let provider = Provider::new(transport);
         // TODO: add retry delays to settings
-        let client = Client::new(settings.disperser.clone(), vec![5, 10, 15]);
+        let client = Client::new(settings.disperser.clone(), vec![1, 3, 5, 10, 15]);
         let start_from = settings
             .start_height
             .clone()

@@ -61,7 +61,7 @@ impl Client {
                     if e.code() == tonic::Code::NotFound {
                         return Ok(None);
                     }
-                    if e.code() != tonic::Code::ResourceExhausted {
+                    // if e.code() != tonic::Code::ResourceExhausted {
                         tracing::warn!(
                             batch_header_hash = hex::encode(batch_header_hash.clone()),
                             blob_index,
@@ -69,7 +69,7 @@ impl Client {
                             "Failed to retrieve blob: {}, retrying",
                             e
                         );
-                    }
+                    // }
                     last_err = e;
                     sleep(delay).await;
                 }
@@ -89,6 +89,10 @@ impl Client {
         batch_header_hash: Vec<u8>,
         blob_index: u32,
     ) -> Result<Vec<u8>, Status> {
+        tracing::info!(
+            batch_header_hash = hex::encode(batch_header_hash.clone()),
+            blob_index,
+            "Retrieving blob");
         let retrieve_request = tonic::Request::new(RetrieveBlobRequest {
             batch_header_hash: batch_header_hash.clone(),
             blob_index,
