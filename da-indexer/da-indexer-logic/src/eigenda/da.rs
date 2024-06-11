@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use sea_orm::TransactionTrait;
+use tokio::sync::RwLock;
 use std::{
     cmp::min,
     sync::{
@@ -20,7 +21,7 @@ use crate::{
     indexer::{Job, DA},
 };
 
-use super::{client::Client, common_transport::CommonTransport, settings::IndexerSettings};
+use super::{client::Client, common_transport::CommonTransport, repository::batches::Gap, settings::IndexerSettings};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct EigenDAJob {
@@ -67,6 +68,7 @@ pub struct EigenDA {
     client: Client,
     provider: Provider<CommonTransport>,
     last_known_block: AtomicU64,
+    unprocessed_gaps: RwLock<Vec<Gap>>,
 }
 
 impl EigenDA {
@@ -79,16 +81,29 @@ impl EigenDA {
             .start_height
             .clone()
             .unwrap_or(provider.get_block_number().await?.as_u64());
+        let gaps = batches::find_gaps(
+            &db,
+            settings.contract_creation_block as i64,
+            start_from as i64,
+        )
+        .await?;
+        tracing::info!("gaps: {:?}", gaps);
         Ok(Self {
-            settings,
+            settings: settings.clone(),
             db,
             client,
             provider,
             last_known_block: AtomicU64::new(start_from.saturating_sub(1)), // TODO: check it
+            unprocessed_gaps: RwLock::new(gaps),
         })
     }
 
-    async fn jobs_from_blocks_range(&self, from: u64, to: u64) -> Result<Vec<Job>> {
+    async fn jobs_from_blocks_range(
+        &self,
+        from: u64,
+        to: u64,
+        limit: Option<u64>,
+    ) -> Result<Vec<Job>> {
         let mut temp_from = from;
         let mut temp_to = to.min(from + self.settings.rpc.batch_size);
         let mut jobs = vec![];
@@ -121,6 +136,12 @@ impl EigenDA {
             );
             tracing::info!(count = jobs.len(), "fetched total past BatchConfirmed logs");
 
+            if let Some(limit) = limit {
+                if jobs.len() as u64 >= limit {
+                    break;
+                }
+            }
+
             temp_from = temp_to + 1;
             temp_to = to.min(temp_from + self.settings.rpc.batch_size);
 
@@ -149,10 +170,16 @@ impl DA for EigenDA {
             let chunk_size = 50;
             for (chunk_index, chunk) in blobs.chunks(chunk_size).enumerate() {
                 let start_index = chunk_index * chunk_size;
-                blobs::upsert_many(self.db.as_ref(), start_index as i32, &job.batch_header_hash, chunk.to_vec()).await?;
+                blobs::upsert_many(
+                    self.db.as_ref(),
+                    start_index as i32,
+                    &job.batch_header_hash,
+                    chunk.to_vec(),
+                )
+                .await?;
             }
         }
-        
+
         batches::upsert(
             self.db.as_ref(),
             &job.batch_header_hash,
@@ -177,29 +204,50 @@ impl DA for EigenDA {
             return Ok(vec![]);
         }
 
-        let jobs = self.jobs_from_blocks_range(from, to).await?;
+        let jobs = self.jobs_from_blocks_range(from, to, None).await?;
         self.last_known_block
             .store(to, std::sync::atomic::Ordering::Relaxed);
         Ok(jobs)
     }
 
-    async fn unprocessed_jobs(&self) -> Result<Vec<Job>> {
-        let gaps = batches::find_gaps(
-            &self.db,
-            self.settings.contract_creation_block as i64,
-            self.last_known_block.load(Ordering::Relaxed) as i64,
-        )
-        .await?;
-        tracing::info!("gaps: {:?}", gaps);
+    async fn has_unprocessed_jobs(&self) -> bool {
+        !self.unprocessed_gaps.read().await.is_empty()
+    }
 
+    async fn unprocessed_jobs(&self) -> Result<Vec<Job>> {
         let mut jobs = vec![];
-        for gap in gaps {
+
+        let mut new_gaps = vec![];
+        let mut unprocessed_gaps = self.unprocessed_gaps.write().await;
+        tracing::info!("gaps: {:?}", unprocessed_gaps);
+        for gap in unprocessed_gaps.iter() {
+            if !jobs.is_empty() {
+                new_gaps.push(gap.clone());
+                continue;
+            }
+
             let from = gap.gap_start as u64;
             let to = gap.gap_end as u64;
-            let mut jobs_in_range = self.jobs_from_blocks_range(from, to).await?;
-            jobs.append(&mut jobs_in_range);
+            let jobs_in_range = self.jobs_from_blocks_range(from, to, Some(1)).await?;
+            if !jobs_in_range.is_empty() {
+                let block_number = EigenDAJob::from(jobs_in_range[0].clone()).block_number;
+                for job in jobs_in_range {
+                    if EigenDAJob::from(job.clone()).block_number == block_number {
+                        jobs.push(job);
+                    } else {
+                        break;
+                    }
+                }
+                if block_number + 1 <= to {
+                    new_gaps.push(Gap {
+                        gap_start: block_number as i64 + 1,
+                        gap_end: to as i64,
+                    });
+                }
+            }
         }
 
+        *unprocessed_gaps = new_gaps;
         Ok(jobs)
     }
 }

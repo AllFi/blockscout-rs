@@ -1,11 +1,15 @@
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::{
-    stream::{self, repeat_with, select_with_strategy, BoxStream, PollNext},
+    stream::{self, once, repeat_with, select_with_strategy, BoxStream, PollNext},
     Stream, StreamExt,
 };
 use sea_orm::DatabaseConnection;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 use std::{fmt::Debug, hash::Hash};
 use tokio::{sync::RwLock, time::sleep};
 use tracing::instrument;
@@ -24,6 +28,7 @@ pub enum Job {
 #[async_trait]
 pub trait DA {
     async fn process_job(&self, job: Job) -> Result<()>;
+    async fn has_unprocessed_jobs(&self) -> bool;
     async fn unprocessed_jobs(&self) -> Result<Vec<Job>>;
     async fn new_jobs(&self) -> Result<Vec<Job>>;
 }
@@ -55,7 +60,7 @@ impl Indexer {
     //#[instrument(name = I::name(), skip_all)]
     pub async fn start(&self) -> anyhow::Result<()> {
         let mut stream = stream::SelectAll::<BoxStream<Job>>::new();
-        stream.push(Box::pin(self.catch_up().await?));
+        stream.push(Box::pin(self.catch_up()));
         stream.push(Box::pin(self.retry_failed_blocks()));
 
         // The idea is to prioritize new blocks over catchup and failed block
@@ -64,7 +69,7 @@ impl Indexer {
             PollNext::Left
         }
         let stream = select_with_strategy(Box::pin(self.poll_for_new_blocks()), stream, prio_left);
-        
+
         stream
             .for_each_concurrent(Some(self.settings.concurrency as usize), |job| async move {
                 self.process_job_with_retries(&job).await
@@ -95,20 +100,38 @@ impl Indexer {
         self.da.process_job(job.clone()).await
     }
 
-    async fn catch_up(&self) -> Result<impl Stream<Item = Job> + '_> {
-        self.da.unprocessed_jobs().await.map(stream::iter)
+    fn catch_up(&self) -> impl Stream<Item = Job> + '_ {
+        repeat_with(move || async {
+            sleep(self.settings.catchup_interval).await;
+            tracing::info!("catching up");
+            match self.da.has_unprocessed_jobs().await {
+                true => {
+                    self.da.unprocessed_jobs().await
+                }
+                false => {
+                    Ok(vec![])
+                }
+            }
+        })
+        .filter_map(|fut| async {
+            fut.await
+                .map_err(
+                    |err: Error| tracing::error!(error = ?err, "failed to retrieve unprocessed jobs"),
+                )
+                .ok()
+        })
+        .flat_map(stream::iter)
     }
 
     fn poll_for_new_blocks(&self) -> impl Stream<Item = Job> + '_ {
         repeat_with(|| async {
             sleep(self.settings.polling_interval).await;
+            tracing::info!("polling for new jobs");
             self.da.new_jobs().await
         })
         .filter_map(|fut| async {
             fut.await
-                .map_err(
-                    |err: Error| tracing::error!(error = ?err, "failed to poll for new blocks"),
-                )
+                .map_err(|err: Error| tracing::error!(error = ?err, "failed to poll for new jobs"))
                 .ok()
         })
         .flat_map(stream::iter)

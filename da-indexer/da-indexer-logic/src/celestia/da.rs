@@ -4,7 +4,7 @@ use celestia_rpc::{Client, HeaderClient, ShareClient};
 use celestia_types::{Blob, ExtendedHeader};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 
@@ -34,6 +34,7 @@ pub struct CelestiaDA {
     db: Arc<DatabaseConnection>,
 
     last_known_height: AtomicU64,
+    catch_up_processed: AtomicBool,
 }
 
 impl CelestiaDA {
@@ -61,6 +62,7 @@ impl CelestiaDA {
             client,
             db,
             last_known_height: AtomicU64::new(start_from.saturating_sub(1)),
+            catch_up_processed: AtomicBool::new(false),
         })
     }
 
@@ -121,6 +123,10 @@ impl DA for CelestiaDA {
             .collect())
     }
 
+    async fn has_unprocessed_jobs(&self) -> bool {
+        !self.catch_up_processed.load(Ordering::Relaxed)
+    }
+
     async fn unprocessed_jobs(&self) -> anyhow::Result<Vec<Job>> {
         // TODO: do we need genesis block metadata?
         if !blocks::exists(&self.db, 0).await? {
@@ -131,6 +137,7 @@ impl DA for CelestiaDA {
         let gaps = blocks::find_gaps(&self.db, last_known_height).await?;
 
         tracing::info!("catch up gaps: {:?}", gaps);
+        self.catch_up_processed.store(true, Ordering::Relaxed);
 
         Ok(gaps
             .into_iter()

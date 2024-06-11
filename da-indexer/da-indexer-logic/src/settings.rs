@@ -27,10 +27,13 @@ pub struct IndexerSettings {
     #[serde(default = "default_retry_interval")]
     #[serde_as(as = "serde_with::DurationSeconds<u64>")]
     pub retry_interval: time::Duration,
+    #[serde(default = "default_catchup_interval")]
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    pub catchup_interval: time::Duration,
 }
 
 fn default_polling_interval() -> time::Duration {
-    time::Duration::from_secs(0)
+    time::Duration::from_secs(12)
 }
 
 fn default_retry_interval() -> time::Duration {
@@ -41,6 +44,10 @@ fn default_restart_delay() -> time::Duration {
     time::Duration::from_secs(60)
 }
 
+fn default_catchup_interval() -> time::Duration {
+    time::Duration::from_secs(0)
+}
+
 impl Default for IndexerSettings {
     fn default() -> Self {
         Self {
@@ -49,6 +56,7 @@ impl Default for IndexerSettings {
             restart_delay: default_restart_delay(),
             polling_interval: default_polling_interval(),
             retry_interval: default_retry_interval(),
+            catchup_interval: default_catchup_interval(),
         }
     }
 }
