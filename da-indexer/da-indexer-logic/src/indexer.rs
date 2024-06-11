@@ -1,18 +1,13 @@
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::{
-    stream::{self, once, repeat_with, select_with_strategy, BoxStream, PollNext},
+    stream::{self, repeat_with, select_with_strategy, BoxStream, PollNext},
     Stream, StreamExt,
 };
 use sea_orm::DatabaseConnection;
-use std::{
-    collections::{HashSet, VecDeque},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use std::{fmt::Debug, hash::Hash};
 use tokio::{sync::RwLock, time::sleep};
-use tracing::instrument;
 
 use crate::{
     celestia, eigenda,
@@ -22,13 +17,12 @@ use crate::{
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum Job {
     Celestia(celestia::da::CelestiaJob),
-    EigenDA(eigenda::da::EigenDAJob),
+    EigenDA(eigenda::job::EigenDAJob),
 }
 
 #[async_trait]
 pub trait DA {
     async fn process_job(&self, job: Job) -> Result<()>;
-    async fn has_unprocessed_jobs(&self) -> bool;
     async fn unprocessed_jobs(&self) -> Result<Vec<Job>>;
     async fn new_jobs(&self) -> Result<Vec<Job>>;
 }
@@ -103,15 +97,7 @@ impl Indexer {
     fn catch_up(&self) -> impl Stream<Item = Job> + '_ {
         repeat_with(move || async {
             sleep(self.settings.catchup_interval).await;
-            tracing::info!("catching up");
-            match self.da.has_unprocessed_jobs().await {
-                true => {
-                    self.da.unprocessed_jobs().await
-                }
-                false => {
-                    Ok(vec![])
-                }
-            }
+            self.da.unprocessed_jobs().await
         })
         .filter_map(|fut| async {
             fut.await

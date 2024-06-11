@@ -123,11 +123,11 @@ impl DA for CelestiaDA {
             .collect())
     }
 
-    async fn has_unprocessed_jobs(&self) -> bool {
-        !self.catch_up_processed.load(Ordering::Relaxed)
-    }
-
     async fn unprocessed_jobs(&self) -> anyhow::Result<Vec<Job>> {
+        if self.catch_up_processed.load(Ordering::Relaxed) {
+            return Ok(vec![]);
+        }
+
         // TODO: do we need genesis block metadata?
         if !blocks::exists(&self.db, 0).await? {
             blocks::upsert(self.db.as_ref(), 0, &[], 0, 0).await?;

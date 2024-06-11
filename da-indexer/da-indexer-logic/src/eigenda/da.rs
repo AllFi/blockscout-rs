@@ -1,93 +1,46 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use async_trait::async_trait;
-use sea_orm::TransactionTrait;
-use tokio::sync::RwLock;
 use std::{
     cmp::min,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::{atomic::AtomicU64, Arc},
 };
+use tokio::sync::RwLock;
 
-use ethers::{
-    providers::{Middleware, Provider},
-    types::{Address, Filter, Log},
-};
 use sea_orm::DatabaseConnection;
 
 use crate::{
+    common::eth_provider::EthProvider,
     eigenda::repository::{batches, blobs},
     indexer::{Job, DA},
 };
 
-use super::{client::Client, common_transport::CommonTransport, repository::batches::Gap, settings::IndexerSettings};
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct EigenDAJob {
-    batch_header_hash: Vec<u8>,
-    batch_id: u64,
-    tx_hash: ethers::types::H256,
-    block_number: u64,
-}
-
-impl From<Job> for EigenDAJob {
-    fn from(val: Job) -> Self {
-        match val {
-            Job::EigenDA(job) => job,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl TryFrom<Log> for EigenDAJob {
-    type Error = anyhow::Error;
-
-    fn try_from(log: Log) -> Result<Self, Self::Error> {
-        if log.removed == Some(true) {
-            bail!("unexpected pending log")
-        }
-        let batch_header_hash = log.topics.get(1).unwrap().as_bytes().to_vec();
-        let batch_id = u64::from_be_bytes((&log.data.to_vec()[24..32]).try_into().unwrap());
-        let tx_hash = log
-            .transaction_hash
-            .ok_or(anyhow::anyhow!("unexpected pending log"))?;
-        Ok(Self {
-            batch_header_hash,
-            batch_id,
-            tx_hash,
-            block_number: log.block_number.unwrap().as_u64(),
-        })
-    }
-}
+use super::{client::Client, job::EigenDAJob, repository::batches::Gap, settings::IndexerSettings};
 
 pub struct EigenDA {
     settings: IndexerSettings,
-    db: Arc<DatabaseConnection>,
 
+    db: Arc<DatabaseConnection>,
     client: Client,
-    provider: Provider<CommonTransport>,
+    provider: EthProvider,
+
     last_known_block: AtomicU64,
     unprocessed_gaps: RwLock<Vec<Gap>>,
 }
 
 impl EigenDA {
     pub async fn new(db: Arc<DatabaseConnection>, settings: IndexerSettings) -> Result<Self> {
-        let transport = CommonTransport::new(settings.rpc.url.clone()).await?;
-        let provider = Provider::new(transport);
+        let provider = EthProvider::new(settings.rpc.url.clone()).await?;
         // TODO: add retry delays to settings
         let client = Client::new(settings.disperser.clone(), vec![1, 3, 5, 10, 15]);
         let start_from = settings
             .start_height
-            .clone()
-            .unwrap_or(provider.get_block_number().await?.as_u64());
+            .unwrap_or(provider.get_block_number().await?);
         let gaps = batches::find_gaps(
             &db,
             settings.contract_creation_block as i64,
             start_from as i64,
         )
         .await?;
-        tracing::info!("gaps: {:?}", gaps);
         Ok(Self {
             settings: settings.clone(),
             db,
@@ -98,58 +51,26 @@ impl EigenDA {
         })
     }
 
-    async fn jobs_from_blocks_range(
+    async fn jobs_from_block_range(
         &self,
         from: u64,
         to: u64,
-        limit: Option<u64>,
+        soft_limit: Option<u64>,
     ) -> Result<Vec<Job>> {
-        let mut temp_from = from;
-        let mut temp_to = to.min(from + self.settings.rpc.batch_size);
-        let mut jobs = vec![];
-        loop {
-            let filter = Filter::new()
-                .address(
-                    self.settings
-                        .contract_address
-                        .clone()
-                        .parse::<Address>()
-                        .unwrap(),
-                )
-                .event("BatchConfirmed(bytes32,uint32)")
-                .from_block(temp_from)
-                .to_block(temp_to);
-            tracing::info!(
-                from = temp_from,
-                to = temp_to,
-                "fetching past BatchConfirmed logs from rpc"
-            );
-
-            jobs.append(
-                &mut self
-                    .provider
-                    .get_logs(&filter)
-                    .await?
-                    .into_iter()
-                    .filter_map(|log| EigenDAJob::try_from(log).ok().map(Job::EigenDA))
-                    .collect(),
-            );
-            tracing::info!(count = jobs.len(), "fetched total past BatchConfirmed logs");
-
-            if let Some(limit) = limit {
-                if jobs.len() as u64 >= limit {
-                    break;
-                }
-            }
-
-            temp_from = temp_to + 1;
-            temp_to = to.min(temp_from + self.settings.rpc.batch_size);
-
-            if temp_from > to {
-                break;
-            }
-        }
-
+        let jobs = self
+            .provider
+            .get_logs(
+                &self.settings.contract_address,
+                "BatchConfirmed(bytes32,uint32)",
+                from,
+                to,
+                self.settings.rpc.batch_size,
+                soft_limit,
+            )
+            .await?
+            .into_iter()
+            .filter_map(|log| EigenDAJob::try_from(log).ok().map(Job::EigenDA))
+            .collect();
         Ok(jobs)
     }
 }
@@ -185,7 +106,7 @@ impl DA for EigenDA {
             &job.batch_header_hash,
             job.batch_id as i64,
             blobs_len as i32,
-            &job.tx_hash.as_bytes(),
+            job.tx_hash.as_bytes(),
             job.block_number as i64,
         )
         .await?;
@@ -194,7 +115,7 @@ impl DA for EigenDA {
     }
 
     async fn new_jobs(&self) -> Result<Vec<Job>> {
-        let last_block = self.provider.get_block_number().await?.as_u64();
+        let last_block = self.provider.get_block_number().await?;
         let from = self
             .last_known_block
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -204,19 +125,14 @@ impl DA for EigenDA {
             return Ok(vec![]);
         }
 
-        let jobs = self.jobs_from_blocks_range(from, to, None).await?;
+        let jobs = self.jobs_from_block_range(from, to, None).await?;
         self.last_known_block
             .store(to, std::sync::atomic::Ordering::Relaxed);
         Ok(jobs)
     }
 
-    async fn has_unprocessed_jobs(&self) -> bool {
-        !self.unprocessed_gaps.read().await.is_empty()
-    }
-
     async fn unprocessed_jobs(&self) -> Result<Vec<Job>> {
         let mut jobs = vec![];
-
         let mut new_gaps = vec![];
         let mut unprocessed_gaps = self.unprocessed_gaps.write().await;
         tracing::info!("gaps: {:?}", unprocessed_gaps);
@@ -228,9 +144,10 @@ impl DA for EigenDA {
 
             let from = gap.gap_start as u64;
             let to = gap.gap_end as u64;
-            let jobs_in_range = self.jobs_from_blocks_range(from, to, Some(1)).await?;
+            let jobs_in_range = self.jobs_from_block_range(from, to, Some(1)).await?;
             if !jobs_in_range.is_empty() {
                 let block_number = EigenDAJob::from(jobs_in_range[0].clone()).block_number;
+                // there might be multiple jobs for the same block
                 for job in jobs_in_range {
                     if EigenDAJob::from(job.clone()).block_number == block_number {
                         jobs.push(job);
@@ -238,7 +155,7 @@ impl DA for EigenDA {
                         break;
                     }
                 }
-                if block_number + 1 <= to {
+                if block_number < to {
                     new_gaps.push(Gap {
                         gap_start: block_number as i64 + 1,
                         gap_end: to as i64,
@@ -246,7 +163,6 @@ impl DA for EigenDA {
                 }
             }
         }
-
         *unprocessed_gaps = new_gaps;
         Ok(jobs)
     }

@@ -28,10 +28,6 @@ impl CommonTransport {
             ))
         }
     }
-
-    pub fn supports_subscriptions(&self) -> bool {
-        matches!(self, CommonTransport::Ws(_))
-    }
 }
 
 #[async_trait]
