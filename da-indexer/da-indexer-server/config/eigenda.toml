@@ -24,7 +24,7 @@ pruning_block_threshold = 1000
 
 [indexer.da.rpc]
 url = "https://holesky.drpc.org"
-batch_size = 10000
+batch_size = 100
 
 [database]
 connect.url = "postgres://postgres:admin@127.0.0.1:9432/blockscout" # (required) no default value available
