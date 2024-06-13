@@ -31,13 +31,13 @@ impl Client {
     pub async fn retrieve_blob_with_retries(
         &self,
         batch_id: u64,
-        batch_header_hash: Vec<u8>,
+        batch_header_hash: &[u8],
         blob_index: u32,
     ) -> Result<Option<Vec<u8>>> {
         let mut last_err = Status::new(tonic::Code::Unknown, "Unknown error");
         for delay in self.retry_delays.iter() {
             match self
-                .retrieve_blob(batch_id, batch_header_hash.clone(), blob_index)
+                .retrieve_blob(batch_id, batch_header_hash.to_vec(), blob_index)
                 .await
             {
                 Ok(blob) => return Ok(Some(blob)),

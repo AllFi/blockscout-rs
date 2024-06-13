@@ -85,7 +85,7 @@ impl DA for EigenDA {
         // it seems that there is no way to figure out the blobs count beforehand
         while let Some(blob) = self
             .client
-            .retrieve_blob_with_retries(job.batch_id, job.batch_header_hash.clone(), blob_index)
+            .retrieve_blob_with_retries(job.batch_id, &job.batch_header_hash, blob_index)
             .await?
         {
             blobs.push(blob);
