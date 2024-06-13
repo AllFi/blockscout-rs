@@ -122,7 +122,7 @@ impl DA for CelestiaDA {
         let last_known_height = self.last_known_height.load(Ordering::SeqCst);
         let gaps = blocks::find_gaps(&self.db, last_known_height).await?;
 
-        tracing::info!("catch up gaps: {:?}", gaps);
+        tracing::info!("catch up gaps: [{:?}]", gaps);
         self.catch_up_processed.store(true, Ordering::Relaxed);
 
         Ok(gaps

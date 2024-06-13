@@ -5,13 +5,12 @@ use futures::{
     Stream, StreamExt,
 };
 use sea_orm::DatabaseConnection;
+use tracing::instrument;
 use std::{collections::HashSet, sync::Arc, time::Duration};
-use std::{fmt::Debug, hash::Hash};
 use tokio::{sync::RwLock, time::sleep};
 
 use crate::{
-    celestia, eigenda,
-    settings::{DASettings, IndexerSettings},
+    celestia, eigenda, settings::{DASettings, IndexerSettings},
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
@@ -51,18 +50,16 @@ impl Indexer {
         })
     }
 
-    //#[instrument(name = I::name(), skip_all)]
+    #[instrument(name = "indexer", skip_all, level = "info")]
     pub async fn start(&self) -> anyhow::Result<()> {
         let mut stream = stream::SelectAll::<BoxStream<Job>>::new();
         stream.push(Box::pin(self.catch_up()));
         stream.push(Box::pin(self.retry_failed_blocks()));
-
-        // The idea is to prioritize new blocks over catchup and failed block
-        // So we are doing catchup and failed blocks while waiting for new blocks
-        fn prio_left(_: &mut ()) -> PollNext {
-            PollNext::Left
-        }
-        let stream = select_with_strategy(Box::pin(self.poll_for_new_blocks()), stream, prio_left);
+        let stream = select_with_strategy(
+            Box::pin(self.poll_for_new_blocks()),
+            stream,
+            |_: &mut ()| PollNext::Left,
+        );
 
         stream
             .for_each_concurrent(Some(self.settings.concurrency as usize), |job| async move {
@@ -77,14 +74,14 @@ impl Indexer {
         let mut backoff = vec![5, 20].into_iter().map(Duration::from_secs);
         while let Err(err) = &self.process_job(job).await {
             match backoff.next() {
+                Some(delay) => {
+                    tracing::warn!(error = ?err, job = ?job, ?delay, "failed to process job, retrying");
+                    sleep(delay).await;
+                }
                 None => {
-                    tracing::warn!(error = ?err, job = ?job, "failed to process job, skipping for now, will retry later");
+                    tracing::error!(error = ?err, job = ?job, "failed to process job, skipping for now, will retry later");
                     self.failed_jobs.write().await.insert(job.clone());
                     break;
-                }
-                Some(delay) => {
-                    tracing::error!(error = ?err, job = ?job, ?delay, "failed to process job, retrying");
-                    sleep(delay).await;
                 }
             };
         }

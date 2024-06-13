@@ -6,10 +6,12 @@ use tokio::time::sleep;
 use tonic::{transport::Channel, Status};
 
 mod disperser {
+    #![allow(clippy::all)]
     tonic::include_proto!("disperser");
 }
 
 mod common {
+    #![allow(clippy::all)]
     tonic::include_proto!("common");
 }
 

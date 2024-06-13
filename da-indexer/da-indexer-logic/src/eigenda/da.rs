@@ -118,8 +118,8 @@ impl DA for EigenDA {
         let blobs_len = blob_index;
         tracing::info!(
             batch_id = job.batch_id,
-            count = blobs_len,
-            "retrieved blobs"
+            "retrieved {} blobs",
+            blobs_len
         );
 
         if blobs_len == 0
@@ -151,7 +151,7 @@ impl DA for EigenDA {
         Ok(jobs)
     }
 
-    /// Returns the earliest unprocessed batche or multiple batches
+    /// Returns the earliest unprocessed batch or multiple batches
     /// if there are many in the same block
     async fn unprocessed_jobs(&self) -> Result<Vec<Job>> {
         let mut unprocessed_gaps = self.unprocessed_gaps.write().await;
