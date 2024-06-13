@@ -1,9 +1,11 @@
+use std::fmt;
+
 use anyhow::bail;
 use ethers::types::Log;
 
 use crate::indexer::Job;
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub struct EigenDAJob {
     pub batch_header_hash: Vec<u8>,
     pub batch_id: u64,
@@ -38,5 +40,11 @@ impl TryFrom<Log> for EigenDAJob {
             tx_hash,
             block_number: log.block_number.unwrap().as_u64(),
         })
+    }
+}
+
+impl fmt::Debug for EigenDAJob {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Job(batchId = {})", self.batch_id)
     }
 }

@@ -5,11 +5,7 @@ use sea_orm::{
     QuerySelect, Statement,
 };
 
-#[derive(FromQueryResult, Debug, Clone)]
-pub struct Gap {
-    pub gap_start: i64,
-    pub gap_end: i64,
-}
+use crate::common::types::gap::Gap;
 
 pub async fn find_gaps(
     db: &DatabaseConnection,
@@ -19,8 +15,8 @@ pub async fn find_gaps(
     let mut gaps = Gap::find_by_statement(Statement::from_sql_and_values(
         db.get_database_backend(),
         r#"
-        SELECT l1_block + 1 as gap_start, 
-                next_l1_block - 1 as gap_end
+        SELECT l1_block + 1 as start, 
+                next_l1_block - 1 as end
         FROM (
             SELECT batch_id, l1_block, lead(batch_id) OVER (ORDER BY batch_id) as next_batch_id, 
                 lead(l1_block) OVER (ORDER BY batch_id) as next_l1_block
@@ -37,8 +33,8 @@ pub async fn find_gaps(
         Some((min_batch_id, min_l1_block)) if min_batch_id > 0 => {
             gaps = [
                 &[Gap {
-                    gap_start: contract_creation_block,
-                    gap_end: min_l1_block - 1,
+                    start: contract_creation_block,
+                    end: min_l1_block - 1,
                 }],
                 &gaps[..],
             ]
@@ -47,8 +43,8 @@ pub async fn find_gaps(
         None => {
             gaps = [
                 &[Gap {
-                    gap_start: contract_creation_block,
-                    gap_end: to_block,
+                    start: contract_creation_block,
+                    end: to_block,
                 }],
                 &gaps[..],
             ]
@@ -61,13 +57,13 @@ pub async fn find_gaps(
     // adding the gap between the last saved batch and the to_block
     let gaps_end = gaps
         .last()
-        .map(|gap| gap.gap_end)
+        .map(|gap| gap.end)
         .unwrap_or(contract_creation_block);
     match find_max_l1_block_in_range(db, gaps_end, to_block).await? {
         Some(max_height) if max_height < to_block => {
             gaps.push(Gap {
-                gap_start: max_height + 1,
-                gap_end: to_block,
+                start: max_height + 1,
+                end: to_block,
             });
         }
         _ => {}

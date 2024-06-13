@@ -1,5 +1,5 @@
 pub mod da;
-//pub mod indexer;
+pub mod job;
 mod parser;
 pub mod repository;
 mod rpc_client;

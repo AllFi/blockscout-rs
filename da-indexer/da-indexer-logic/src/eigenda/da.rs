@@ -2,19 +2,22 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::{
     cmp::min,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::RwLock;
 
 use sea_orm::DatabaseConnection;
 
 use crate::{
-    common::eth_provider::EthProvider,
+    common::{eth_provider::EthProvider, types::gap::Gap},
     eigenda::repository::{batches, blobs},
     indexer::{Job, DA},
 };
 
-use super::{client::Client, job::EigenDAJob, repository::batches::Gap, settings::IndexerSettings};
+use super::{client::Client, job::EigenDAJob, settings::IndexerSettings};
 
 pub struct EigenDA {
     settings: IndexerSettings,
@@ -30,8 +33,7 @@ pub struct EigenDA {
 impl EigenDA {
     pub async fn new(db: Arc<DatabaseConnection>, settings: IndexerSettings) -> Result<Self> {
         let provider = EthProvider::new(settings.rpc.url.clone()).await?;
-        // TODO: add retry delays to settings
-        let client = Client::new(settings.disperser.clone(), vec![1, 3, 5, 10, 15]);
+        let client = Client::new(settings.disperser.clone(), vec![5, 15, 30]).await?;
         let start_from = settings
             .start_height
             .unwrap_or(provider.get_block_number().await?);
@@ -46,7 +48,7 @@ impl EigenDA {
             db,
             client,
             provider,
-            last_known_block: AtomicU64::new(start_from.saturating_sub(1)), // TODO: check it
+            last_known_block: AtomicU64::new(start_from.saturating_sub(1)),
             unprocessed_gaps: RwLock::new(gaps),
         })
     }
@@ -79,26 +81,56 @@ impl EigenDA {
 impl DA for EigenDA {
     async fn process_job(&self, job: Job) -> Result<()> {
         let job = EigenDAJob::from(job);
-        tracing::info!(tx_hash = ?job.tx_hash, batch_header_hash = hex::encode(&job.batch_header_hash), "processing job");
-        let blobs = self
-            .client
-            .retrieve_blobs(job.batch_header_hash.clone())
-            .await?;
-        tracing::info!(count = blobs.len(), "retrieved blobs");
+        tracing::info!(batch_id = job.batch_id, tx_hash = ?job.tx_hash, "processing job");
 
-        let blobs_len = blobs.len();
-        if !blobs.is_empty() {
-            let chunk_size = 50;
-            for (chunk_index, chunk) in blobs.chunks(chunk_size).enumerate() {
-                let start_index = chunk_index * chunk_size;
+        let mut blob_index = 0;
+        let mut blobs = vec![];
+        // it seems that there is no way to figure out the blobs count beforehand
+        while let Some(blob) = self
+            .client
+            .retrieve_blob_with_retries(job.batch_header_hash.clone(), blob_index)
+            .await?
+        {
+            blobs.push(blob);
+            blob_index += 1;
+
+            // blobs might be quite big, so we save them periodically
+            // to save ram and to avoid huge db transactions
+            if blobs.len() == self.settings.save_batch_size as usize {
                 blobs::upsert_many(
                     self.db.as_ref(),
-                    start_index as i32,
+                    blob_index as i32 - blobs.len() as i32,
                     &job.batch_header_hash,
-                    chunk.to_vec(),
+                    blobs,
                 )
                 .await?;
+                blobs = vec![];
             }
+        }
+
+        if !blobs.is_empty() {
+            blobs::upsert_many(
+                self.db.as_ref(),
+                blob_index as i32 - blobs.len() as i32,
+                &job.batch_header_hash,
+                blobs,
+            )
+            .await?;
+        }
+
+        let blobs_len = blob_index;
+        tracing::info!(
+            batch_id = job.batch_id,
+            count = blobs_len,
+            "retrieved blobs"
+        );
+
+        if blobs_len == 0
+            && self.last_known_block.load(Ordering::Relaxed) - job.block_number
+                < self.settings.pruning_block_threshold
+        {
+            // we might have missed the blobs, so we will retry the job
+            return Err(anyhow::anyhow!("no blobs retrieved for recent batch"));
         }
 
         batches::upsert(
@@ -135,15 +167,15 @@ impl DA for EigenDA {
         let mut jobs = vec![];
         let mut new_gaps = vec![];
         let mut unprocessed_gaps = self.unprocessed_gaps.write().await;
-        tracing::info!("gaps: {:?}", unprocessed_gaps);
+        tracing::info!("unprocessed gaps: {:?}", unprocessed_gaps);
         for gap in unprocessed_gaps.iter() {
             if !jobs.is_empty() {
                 new_gaps.push(gap.clone());
                 continue;
             }
 
-            let from = gap.gap_start as u64;
-            let to = gap.gap_end as u64;
+            let from = gap.start as u64;
+            let to = gap.end as u64;
             let jobs_in_range = self.jobs_from_block_range(from, to, Some(1)).await?;
             if !jobs_in_range.is_empty() {
                 let block_number = EigenDAJob::from(jobs_in_range[0].clone()).block_number;
@@ -157,8 +189,8 @@ impl DA for EigenDA {
                 }
                 if block_number < to {
                     new_gaps.push(Gap {
-                        gap_start: block_number as i64 + 1,
-                        gap_end: to as i64,
+                        start: block_number as i64 + 1,
+                        end: to as i64,
                     });
                 }
             }

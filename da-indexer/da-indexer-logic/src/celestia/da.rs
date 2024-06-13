@@ -13,21 +13,7 @@ use crate::{
     indexer::{Job, DA},
 };
 
-use super::{parser, repository::blocks, settings::IndexerSettings};
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct CelestiaJob {
-    pub height: u64,
-}
-
-impl From<Job> for CelestiaJob {
-    fn from(val: Job) -> Self {
-        match val {
-            Job::Celestia(job) => job,
-            _ => unreachable!(),
-        }
-    }
-}
+use super::{job::CelestiaJob, parser, repository::blocks, settings::IndexerSettings};
 
 pub struct CelestiaDA {
     client: Client,
@@ -142,7 +128,7 @@ impl DA for CelestiaDA {
         Ok(gaps
             .into_iter()
             .flat_map(|gap| {
-                (gap.gap_start..=gap.gap_end).map(|height| {
+                (gap.start..=gap.end).map(|height| {
                     Job::Celestia(CelestiaJob {
                         height: height as u64,
                     })

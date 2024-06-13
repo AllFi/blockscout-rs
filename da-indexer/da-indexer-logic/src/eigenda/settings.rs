@@ -10,6 +10,8 @@ pub struct IndexerSettings {
     pub rpc: RpcSettings,
     pub start_height: Option<u64>,
     pub contract_creation_block: u64,
+    pub save_batch_size: u64,
+    pub pruning_block_threshold: u64,
 }
 
 #[serde_as]
@@ -31,6 +33,8 @@ impl Default for IndexerSettings {
             },
             start_height: None,
             contract_creation_block: 1168412,
+            save_batch_size: 20,
+            pruning_block_threshold: 1000,
         }
     }
 }

@@ -22,6 +22,9 @@ impl EthProvider {
         Ok(self.provider.get_block_number().await?.as_u64())
     }
 
+    /// Fetches event from the blockchain in batches.
+    /// `soft_limit` allows to stop fetching logs if the limit is reached,
+    /// but the actual number of logs might be greater than the limit
     pub async fn get_logs(
         &self,
         address: &str,
@@ -49,11 +52,11 @@ impl EthProvider {
 
             logs.append(&mut self.provider.get_logs(&filter).await?);
             tracing::info!(
-                from = temp_from,
-                to = temp_to,
-                event = event,
-                count = logs.len(),
-                "logs fetched"
+                "fetched {} logs for event '{}' from block {} to block {}",
+                logs.len(),
+                event,
+                temp_from,
+                temp_to
             );
 
             if let Some(limit) = soft_limit {

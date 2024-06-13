@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum Job {
-    Celestia(celestia::da::CelestiaJob),
+    Celestia(celestia::job::CelestiaJob),
     EigenDA(eigenda::job::EigenDAJob),
 }
 

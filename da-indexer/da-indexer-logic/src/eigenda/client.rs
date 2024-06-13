@@ -14,90 +14,73 @@ mod common {
 }
 
 pub struct Client {
-    disperser_endpoint: String,
-    retry_delays: Vec<u64>,
+    retry_delays: Vec<Duration>,
+
+    client: DisperserClient<Channel>,
 }
 
 impl Client {
-    pub fn new(disperser_endpoint: String, retry_delays: Vec<u64>) -> Self {
-        Self {
-            disperser_endpoint,
+    pub async fn new(disperser_endpoint: String, retry_delays: Vec<u64>) -> Result<Self> {
+        let client = DisperserClient::connect(disperser_endpoint).await?;
+        let retry_delays = retry_delays.into_iter().map(Duration::from_secs).collect();
+        Ok(Self {
             retry_delays,
-        }
+            client,
+        })
     }
 
-    pub async fn retrieve_blobs(&self, batch_header_hash: Vec<u8>) -> Result<Vec<Vec<u8>>> {
-        //? can we figure out the blobs count beforehand?
-        let mut blobs = vec![];
-        let mut blob_index = 0;
-        //? should we cache it?
-        let mut client = DisperserClient::connect(self.disperser_endpoint.clone()).await?;
-        while let Some(blob) = self
-            .retrieve_blob_with_retries(&mut client, batch_header_hash.clone(), blob_index)
-            .await?
-        {
-            blobs.push(blob);
-            blob_index += 1;
-        }
-        Ok(blobs)
-    }
-
-    async fn retrieve_blob_with_retries(
+    pub async fn retrieve_blob_with_retries(
         &self,
-        client: &mut DisperserClient<Channel>,
         batch_header_hash: Vec<u8>,
         blob_index: u32,
     ) -> Result<Option<Vec<u8>>> {
-        let mut backoff = self
-            .retry_delays
-            .clone()
-            .into_iter()
-            .map(Duration::from_secs);
         let mut last_err = Status::new(tonic::Code::Unknown, "Unknown error");
-        for delay in &mut backoff {
-            match Self::retrieve_blob(client, batch_header_hash.clone(), blob_index).await {
+        for delay in self.retry_delays.iter() {
+            match self
+                .retrieve_blob(batch_header_hash.clone(), blob_index)
+                .await
+            {
                 Ok(blob) => return Ok(Some(blob)),
                 Err(e) => {
                     if e.code() == tonic::Code::NotFound {
                         return Ok(None);
                     }
-                    // if e.code() != tonic::Code::ResourceExhausted {
                     tracing::warn!(
                         batch_header_hash = hex::encode(batch_header_hash.clone()),
                         blob_index,
                         ?delay,
-                        "Failed to retrieve blob: {}, retrying",
+                        "failed to fetch blob: {}, retrying",
                         e
                     );
-                    // }
                     last_err = e;
-                    sleep(delay).await;
+                    sleep(*delay).await;
                 }
             }
         }
         tracing::error!(
             batch_header_hash = hex::encode(batch_header_hash.clone()),
             blob_index,
-            "Failed to retrieve blob: {}, skipping the batch",
+            "failed to fetch blob: {}, skipping the batch",
             last_err
         );
         Err(last_err.into())
     }
 
     async fn retrieve_blob(
-        client: &mut DisperserClient<Channel>,
+        &self,
         batch_header_hash: Vec<u8>,
         blob_index: u32,
     ) -> Result<Vec<u8>, Status> {
-        tracing::info!(
+        tracing::debug!(
             batch_header_hash = hex::encode(batch_header_hash.clone()),
             blob_index,
-            "Retrieving blob"
+            "fetching blob"
         );
         let retrieve_request = tonic::Request::new(RetrieveBlobRequest {
             batch_header_hash: batch_header_hash.clone(),
             blob_index,
         });
+        let mut client = self.client.clone();
         client
             .retrieve_blob(retrieve_request)
             .await
