@@ -4,7 +4,7 @@ use crate::celestia::{repository::blocks, tests::init_db};
 
 #[tokio::test]
 async fn upsert_test() {
-    let db = init_db("blocks_db_upsert").await;
+    let db = init_db("celestia_blocks_upsert_test").await;
 
     for height in 1..=5 {
         let hash = [height as u8; 32];
@@ -19,7 +19,7 @@ async fn upsert_test() {
 
 #[tokio::test]
 async fn find_gaps_test() {
-    let db = init_db("blocks_db_find_gaps").await;
+    let db = init_db("celestia_blocks_find_gaps_test").await;
 
     let heights = vec![0, 7, 12, 13, 14, 15, 17, 94, 156, 157];
     insert_heights(&db.client(), heights).await;
@@ -35,7 +35,7 @@ async fn find_gaps_test() {
 
 #[tokio::test]
 async fn find_gaps_empty_database_test() {
-    let db = init_db("blocks_db_find_gaps_empty").await;
+    let db = init_db("celestia_blocks_find_gaps_empty_database_test").await;
 
     let heights = vec![0];
     insert_heights(&db.client(), heights).await;

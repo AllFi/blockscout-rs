@@ -4,7 +4,7 @@ use crate::eigenda::{repository::batches, tests::init_db};
 
 #[tokio::test]
 async fn find_gaps() {
-    let db = init_db("batches_db_find_gaps").await;
+    let db = init_db("eigenda_batches_find_gaps_test").await;
 
     let heights = vec![7, 12, 13, 14, 15, 17, 94, 156, 157];
     insert_batches(&db.client(), heights).await;
@@ -19,13 +19,11 @@ async fn find_gaps() {
 }
 
 #[tokio::test]
-async fn find_min_batch_id() {
-    let db = init_db("batches_db_find_min_batch_id").await;
+async fn find_gaps_empty_database() {
+    let db = init_db("eigenda_batches_find_gaps_empty_test").await;
 
-    let (batch_id, l1_block) = batches::find_min_batch_id(&db.client())
-        .await
-        .unwrap()
-        .unwrap_or((0, 0));
+    let gaps = batches::find_gaps(&db.client(), 0, 200).await.unwrap();
+    assert!(gaps[0].start == 0 && gaps[0].end == 200);
 }
 
 async fn insert_batches(db: &DatabaseConnection, batches: Vec<i64>) {

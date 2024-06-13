@@ -32,10 +32,7 @@ pub async fn find_gaps(
         .await?
         .unwrap_or(0) as u64;
     if max_height < up_to_height {
-        gaps.push(Gap {
-            start: (max_height + 1) as i64,
-            end: up_to_height as i64,
-        })
+        gaps.push(Gap::new((max_height + 1) as i64, up_to_height as i64))
     }
 
     Ok(gaps)

@@ -1,7 +1,5 @@
-//pub mod client;
-//mod indexer;
-pub mod batches_db;
-pub mod blobs_db;
+pub mod batches;
+pub mod blobs;
 
 use blockscout_service_launcher::test_database::TestDbGuard;
 

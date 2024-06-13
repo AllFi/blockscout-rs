@@ -8,6 +8,12 @@ pub struct Gap {
     pub end: i64,
 }
 
+impl Gap {
+    pub fn new(start: i64, end: i64) -> Self {
+        Self { start, end }
+    }
+}
+
 impl fmt::Display for Gap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[{}, {}]", self.start, self.end)

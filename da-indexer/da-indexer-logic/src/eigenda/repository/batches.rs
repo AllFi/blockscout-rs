@@ -12,9 +12,23 @@ pub async fn find_gaps(
     contract_creation_block: i64,
     to_block: i64,
 ) -> Result<Vec<Gap>, anyhow::Error> {
-    let mut gaps = Gap::find_by_statement(Statement::from_sql_and_values(
-        db.get_database_backend(),
-        r#"
+    let mut gaps = vec![];
+    // add the gap between the contract creation block and the first saved batch
+    match find_min_batch_id(db).await? {
+        Some((min_batch_id, min_l1_block)) if min_batch_id > 0 => {
+            gaps.push(Gap::new(contract_creation_block, min_l1_block - 1));
+        }
+        None => {
+            gaps.push(Gap::new(contract_creation_block, to_block));
+            return Ok(gaps);
+        }
+        _ => {}
+    }
+
+    gaps.append(
+        &mut Gap::find_by_statement(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            r#"
         SELECT l1_block + 1 as start, 
                 next_l1_block - 1 as end
         FROM (
@@ -23,38 +37,13 @@ pub async fn find_gaps(
             FROM eigenda_batches WHERE l1_block <= $1
         ) nr
         WHERE nr.batch_id + 1 <> nr.next_batch_id ORDER BY nr.batch_id;"#,
-        [to_block.into()],
-    ))
-    .all(db)
-    .await?;
-    println!("1: {:?}", gaps);
+            [to_block.into()],
+        ))
+        .all(db)
+        .await?,
+    );
 
-    match find_min_batch_id(db).await? {
-        Some((min_batch_id, min_l1_block)) if min_batch_id > 0 => {
-            gaps = [
-                &[Gap {
-                    start: contract_creation_block,
-                    end: min_l1_block - 1,
-                }],
-                &gaps[..],
-            ]
-            .concat();
-        }
-        None => {
-            gaps = [
-                &[Gap {
-                    start: contract_creation_block,
-                    end: to_block,
-                }],
-                &gaps[..],
-            ]
-            .concat();
-        }
-        _ => {}
-    }
-    println!("2: {:?}", gaps);
-
-    // adding the gap between the last saved batch and the to_block
+    // add the gap between the last saved batch and the to_block
     let gaps_end = gaps
         .last()
         .map(|gap| gap.end)
@@ -68,7 +57,6 @@ pub async fn find_gaps(
         }
         _ => {}
     }
-    println!("3: {:?}", gaps);
 
     Ok(gaps)
 }
