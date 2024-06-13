@@ -1,11 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::{
-    cmp::min,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
 };
 use tokio::sync::RwLock;
 
@@ -32,8 +29,8 @@ pub struct EigenDA {
 
 impl EigenDA {
     pub async fn new(db: Arc<DatabaseConnection>, settings: IndexerSettings) -> Result<Self> {
-        let provider = EthProvider::new(settings.rpc.url.clone()).await?;
-        let client = Client::new(settings.disperser.clone(), vec![5, 15, 30]).await?;
+        let provider = EthProvider::new(&settings.rpc.url).await?;
+        let client = Client::new(&settings.disperser, vec![5, 15, 30]).await?;
         let start_from = settings
             .start_height
             .unwrap_or(provider.get_block_number().await?);
@@ -44,7 +41,7 @@ impl EigenDA {
         )
         .await?;
         Ok(Self {
-            settings: settings.clone(),
+            settings,
             db,
             client,
             provider,
@@ -81,14 +78,14 @@ impl EigenDA {
 impl DA for EigenDA {
     async fn process_job(&self, job: Job) -> Result<()> {
         let job = EigenDAJob::from(job);
-        tracing::info!(batch_id = job.batch_id, tx_hash = ?job.tx_hash, "processing job");
+        tracing::info!(batch_id = job.batch_id, tx_hash = ?job.tx_hash, "processing batch");
 
         let mut blob_index = 0;
         let mut blobs = vec![];
         // it seems that there is no way to figure out the blobs count beforehand
         while let Some(blob) = self
             .client
-            .retrieve_blob_with_retries(job.batch_header_hash.clone(), blob_index)
+            .retrieve_blob_with_retries(job.batch_id, job.batch_header_hash.clone(), blob_index)
             .await?
         {
             blobs.push(blob);
@@ -129,7 +126,6 @@ impl DA for EigenDA {
             && self.last_known_block.load(Ordering::Relaxed) - job.block_number
                 < self.settings.pruning_block_threshold
         {
-            // we might have missed the blobs, so we will retry the job
             return Err(anyhow::anyhow!("no blobs retrieved for recent batch"));
         }
 
@@ -147,55 +143,52 @@ impl DA for EigenDA {
     }
 
     async fn new_jobs(&self) -> Result<Vec<Job>> {
-        let last_block = self.provider.get_block_number().await?;
-        let from = self
-            .last_known_block
-            .load(std::sync::atomic::Ordering::Relaxed)
-            + 1;
-        let to = min(from + self.settings.rpc.batch_size, last_block);
-        if to < from {
-            return Ok(vec![]);
-        }
+        let from = self.last_known_block.load(Ordering::Acquire) + 1;
+        let to = self.provider.get_block_number().await?;
 
         let jobs = self.jobs_from_block_range(from, to, None).await?;
-        self.last_known_block
-            .store(to, std::sync::atomic::Ordering::Relaxed);
+        self.last_known_block.store(to, Ordering::Release);
         Ok(jobs)
     }
 
+    /// Returns the earliest unprocessed batche or multiple batches
+    /// if there are many in the same block
     async fn unprocessed_jobs(&self) -> Result<Vec<Job>> {
+        let mut unprocessed_gaps = self.unprocessed_gaps.write().await;
+        tracing::info!("catching up gaps: {:?}", unprocessed_gaps);
+
         let mut jobs = vec![];
         let mut new_gaps = vec![];
-        let mut unprocessed_gaps = self.unprocessed_gaps.write().await;
-        tracing::info!("unprocessed gaps: {:?}", unprocessed_gaps);
-        for gap in unprocessed_gaps.iter() {
-            if !jobs.is_empty() {
-                new_gaps.push(gap.clone());
-                continue;
-            }
 
-            let from = gap.start as u64;
-            let to = gap.end as u64;
-            let jobs_in_range = self.jobs_from_block_range(from, to, Some(1)).await?;
-            if !jobs_in_range.is_empty() {
-                let block_number = EigenDAJob::from(jobs_in_range[0].clone()).block_number;
-                // there might be multiple jobs for the same block
-                for job in jobs_in_range {
-                    if EigenDAJob::from(job.clone()).block_number == block_number {
-                        jobs.push(job);
-                    } else {
-                        break;
+        for gap in unprocessed_gaps.iter() {
+            match jobs.is_empty() {
+                true => {
+                    let jobs_in_range = self
+                        .jobs_from_block_range(gap.start as u64, gap.end as u64, Some(1))
+                        .await?;
+
+                    if !jobs_in_range.is_empty() {
+                        let block_number = EigenDAJob::block_number(jobs_in_range.first().unwrap());
+                        // in case there are multiple batches in the same block
+                        jobs.extend(
+                            jobs_in_range
+                                .into_iter()
+                                .take_while(|job| EigenDAJob::block_number(job) == block_number),
+                        );
+
+                        if block_number < gap.end as u64 {
+                            new_gaps.push(Gap {
+                                start: block_number as i64 + 1,
+                                end: gap.end,
+                            });
+                        }
                     }
                 }
-                if block_number < to {
-                    new_gaps.push(Gap {
-                        start: block_number as i64 + 1,
-                        end: to as i64,
-                    });
-                }
+                false => new_gaps.push(gap.clone()),
             }
         }
         *unprocessed_gaps = new_gaps;
+
         Ok(jobs)
     }
 }

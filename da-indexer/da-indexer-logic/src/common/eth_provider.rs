@@ -12,8 +12,8 @@ pub struct EthProvider {
 }
 
 impl EthProvider {
-    pub async fn new(rpc_url: String) -> Result<Self> {
-        let transport = CommonTransport::new(rpc_url).await?;
+    pub async fn new(rpc_url: &str) -> Result<Self> {
+        let transport = CommonTransport::new(rpc_url.to_string()).await?;
         let provider = Provider::new(transport);
         Ok(Self { provider })
     }
@@ -34,21 +34,19 @@ impl EthProvider {
         batch_size: u64,
         soft_limit: Option<u64>,
     ) -> Result<Vec<Log>> {
+        if from > to {
+            return Ok(vec![]);
+        }
+
         let mut temp_from = from;
         let mut temp_to = to.min(from + batch_size);
         let mut logs = vec![];
         loop {
             let filter = Filter::new()
-                .address(address.parse::<Address>().unwrap())
+                .address(address.parse::<Address>()?)
                 .event(event)
                 .from_block(temp_from)
                 .to_block(temp_to);
-            tracing::debug!(
-                from = temp_from,
-                to = temp_to,
-                event = event,
-                "fetching logs from rpc"
-            );
 
             logs.append(&mut self.provider.get_logs(&filter).await?);
             tracing::info!(
