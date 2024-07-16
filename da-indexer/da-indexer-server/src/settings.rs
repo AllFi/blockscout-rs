@@ -19,7 +19,8 @@ pub struct Settings {
     pub jaeger: JaegerSettings,
     pub database: DatabaseSettings,
 
-    pub indexer: IndexerSettings,
+    pub indexer: Option<IndexerSettings>,
+    pub l2_router_config: Option<String>,
 }
 
 impl ConfigSettings for Settings {
@@ -38,7 +39,8 @@ impl Settings {
                 create_database: Default::default(),
                 run_migrations: Default::default(),
             },
-            indexer: Default::default(),
+            indexer: Some(Default::default()),
+            l2_router_config: None,
         }
     }
 }

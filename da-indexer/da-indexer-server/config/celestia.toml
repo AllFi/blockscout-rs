@@ -1,3 +1,5 @@
+l2_router_config = "./da-indexer-server/config/celestia_routes.toml"
+
 [server.http]
 enabled = true
 addr = "0.0.0.0:8050"
@@ -25,13 +27,13 @@ agent_endpoint = "localhost:6831"
 enabled = true
 format = "default"
 
-[indexer]
-concurrency = 15
-retry_interval = 180
-polling_interval = 12
+# [indexer]
+# concurrency = 15
+# retry_interval = 180
+# polling_interval = 12
 
-[indexer.da]
-type = "Celestia"
+# [indexer.da]
+# type = "Celestia"
 
-[indexer.da.rpc]
-url = "http://host.docker.internal:26658"
+# [indexer.da.rpc]
+# url = "http://host.docker.internal:26658"

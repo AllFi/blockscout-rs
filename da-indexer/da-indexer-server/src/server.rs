@@ -5,6 +5,7 @@ use crate::{
 };
 use blockscout_service_launcher::{launcher, launcher::LaunchSettings};
 
+use da_indexer_logic::celestia::l2_router::{self, L2Router};
 use da_indexer_proto::blockscout::da_indexer::v1::{
     celestia_service_actix::route_celestia_service, celestia_service_server::CelestiaServiceServer,
     eigen_da_service_actix::route_eigen_da_service, eigen_da_service_server::EigenDaServiceServer,
@@ -42,9 +43,10 @@ impl launcher::HttpRouter for Router {
 pub async fn run(
     settings: Settings,
     database_connection: DatabaseConnection,
+    l2_router: Option<L2Router>,
 ) -> Result<(), anyhow::Error> {
     let health = Arc::new(HealthService::default());
-    let celestia = Arc::new(CelestiaService::new(database_connection.clone()));
+    let celestia = Arc::new(CelestiaService::new(database_connection.clone(), l2_router));
     let eigenda = Arc::new(EigenDaService::new(database_connection.clone()));
 
     let router = Router {
