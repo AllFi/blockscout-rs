@@ -6,7 +6,7 @@ pub enum L2Type {
     Arbitrum,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct L2Config {
     pub chain_type: L2Type,
     pub chain_id: u32,

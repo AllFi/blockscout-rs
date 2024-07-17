@@ -898,9 +898,9 @@ checksum = "35636a1494ede3b646cc98f74f8e62c773a38a659ebc777a2cf26b9b74171df9"
 
 [[package]]
 name = "base64"
-version = "0.22.0"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9475866fec1451be56a3c2400fd081ff546538961565ccb5b7142cbd22bc7a51"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64ct"
@@ -1863,7 +1863,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.0",
+ "base64 0.22.1",
  "blockscout-display-bytes",
  "blockscout-service-launcher 0.9.0",
  "celestia-rpc",
@@ -1925,7 +1925,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "async-trait",
- "base64 0.22.0",
+ "base64 0.22.1",
  "blockscout-display-bytes",
  "blockscout-service-launcher 0.10.0",
  "config 0.14.0",
@@ -1939,7 +1939,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "toml 0.8.14",
  "tonic 0.8.3",
  "tracing",
 ]
@@ -5259,7 +5258,7 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d6d2a27d57148378eb5e111173f4276ad26340ecc5c49a4a2152167a2d6a37"
 dependencies = [
- "base64 0.22.0",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -5630,7 +5629,7 @@ version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29993a25686778eb88d4189742cd713c9bce943bc54251a33509dc63cbacf73d"
 dependencies = [
- "base64 0.22.0",
+ "base64 0.22.1",
  "rustls-pki-types",
 ]
 

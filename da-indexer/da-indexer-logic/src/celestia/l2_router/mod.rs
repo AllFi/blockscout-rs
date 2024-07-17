@@ -1,10 +1,13 @@
+mod arbitrum;
 mod optimism;
+pub mod settings;
 pub mod types;
 
 use anyhow::{anyhow, Result};
-use optimism::get_l2_batch_optimism;
+use blockscout_display_bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use settings::L2RouterSettings;
+use std::{collections::HashMap, fs};
 use types::{L2BatchMetadata, L2Config, L2Type};
 
 #[derive(Serialize, Deserialize)]
@@ -17,25 +20,30 @@ impl L2Router {
         Ok(Self { routes })
     }
 
-    pub fn parse_from_config(config: &str) -> Result<Self> {
-        // let routes: HashMap<String, L2Config> = serde_json::from_str(config)?;
-        // Ok(Self::new(routes)?)
-        todo!()
+    pub fn from_settings(settings: L2RouterSettings) -> Result<Self> {
+        let routes = fs::read_to_string(settings.routes_path)?;
+        let router: L2Router = toml::from_str(&routes)?;
+        router.routes.iter().for_each(|(namespace, config)| {
+            tracing::info!("Registered route: {} -> {:?}", namespace, config);
+        });
+        Ok(router)
     }
 
     pub async fn get_l2_batch_metadata(
         &self,
         height: u64,
-        namespace: &str,
+        namespace: &[u8],
         commitment: &[u8],
     ) -> Result<L2BatchMetadata> {
+        let namespace = Bytes::from(namespace.to_vec()).to_string();
         let config = self
             .routes
-            .get(namespace)
-            .ok_or_else(|| anyhow!("no config found for namespace {}", namespace))?;
+            .get(&namespace)
+            .ok_or_else(|| anyhow!("unknown namespace: {}", namespace))?;
+
         match config.chain_type {
-            L2Type::Optimism => get_l2_batch_optimism(config, height, commitment).await,
-            _ => Err(anyhow!("unsupported chain type: {:?}", config.chain_type)),
+            L2Type::Optimism => optimism::get_l2_batch(config, height, commitment).await,
+            L2Type::Arbitrum => arbitrum::get_l2_batch(config, height, commitment).await,
         }
     }
 }

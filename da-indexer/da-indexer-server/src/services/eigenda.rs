@@ -1,12 +1,11 @@
-use std::str::FromStr;
-
 use crate::proto::eigen_da_service_server::EigenDaService as EigenDa;
 use base64::prelude::*;
-use blockscout_display_bytes::Bytes;
 use da_indexer_logic::eigenda::repository::blobs;
 use da_indexer_proto::blockscout::da_indexer::v1::{EigenDaBlob, GetEigenDaBlobRequest};
 use sea_orm::DatabaseConnection;
 use tonic::{Request, Response, Status};
+
+use super::bytes_from_hex_or_base64;
 
 #[derive(Default)]
 pub struct EigenDaService {
@@ -28,13 +27,8 @@ impl EigenDa for EigenDaService {
         let inner = request.into_inner();
 
         let blob_index = inner.blob_index;
-        let batch_header_hash = Bytes::from_str(&inner.batch_header_hash)
-            .map(|b| b.to_vec())
-            .or_else(|_| BASE64_STANDARD.decode(&inner.batch_header_hash))
-            .map_err(|err| {
-                tracing::error!(error = ?err, "failed to decode batch header hash");
-                Status::invalid_argument("failed to decode batch header hash")
-            })?;
+        let batch_header_hash =
+            bytes_from_hex_or_base64(&inner.batch_header_hash, "batch header hash")?;
 
         let blob = blobs::find(&self.db, &batch_header_hash, blob_index as i32)
             .await

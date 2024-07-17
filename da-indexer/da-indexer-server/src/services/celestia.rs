@@ -1,14 +1,13 @@
-use std::str::FromStr;
-
 use crate::proto::celestia_service_server::CelestiaService as Celestia;
 use base64::prelude::*;
-use blockscout_display_bytes::Bytes;
 use da_indexer_logic::celestia::{l2_router::L2Router, repository::blobs};
 use da_indexer_proto::blockscout::da_indexer::v1::{
     CelestiaBlob, CelestiaBlobId, CelestiaL2BatchMetadata, GetCelestiaBlobRequest,
 };
 use sea_orm::DatabaseConnection;
 use tonic::{Request, Response, Status};
+
+use super::bytes_from_hex_or_base64;
 
 #[derive(Default)]
 pub struct CelestiaService {
@@ -31,13 +30,7 @@ impl Celestia for CelestiaService {
         let inner = request.into_inner();
 
         let height = inner.height;
-        let commitment = Bytes::from_str(&inner.commitment)
-            .map(|b| b.to_vec())
-            .or_else(|_| BASE64_STANDARD.decode(&inner.commitment))
-            .map_err(|err| {
-                tracing::error!(error = ?err, "failed to decode commitment");
-                Status::invalid_argument("failed to decode commitment")
-            })?;
+        let commitment = bytes_from_hex_or_base64(&inner.commitment, "commitment")?;
 
         let blob = blobs::find_by_height_and_commitment(&self.db, height, &commitment)
             .await
@@ -69,32 +62,26 @@ impl Celestia for CelestiaService {
                 let inner = request.into_inner();
 
                 let height = inner.height;
-                let commitment = Bytes::from_str(&inner.commitment)
-                    .map(|b| b.to_vec())
-                    .or_else(|_| BASE64_STANDARD.decode(&inner.commitment))
+                let commitment = bytes_from_hex_or_base64(&inner.commitment, "commitment")?;
+                let namespace = bytes_from_hex_or_base64(&inner.namespace, "namespace")?;
+
+                let l2_batch_metadata = l2_router
+                    .get_l2_batch_metadata(height, &namespace, &commitment)
+                    .await
                     .map_err(|err| {
-                        tracing::error!(error = ?err, "failed to decode commitment");
-                        Status::invalid_argument("failed to decode commitment")
+                        tracing::error!(error = ?err, "failed to query l2 batch metadata");
+                        Status::internal("failed to query l2 batch metadata")
                     })?;
 
-                let namespace = Bytes::from_str(&inner.namespace)
-                    .map(|b| b.to_vec())
-                    .or_else(|_| BASE64_STANDARD.decode(&inner.namespace))
-                    .map_err(|err| {
-                        tracing::error!(error = ?err, "failed to decode commitment");
-                        Status::invalid_argument("failed to decode commitment")
-                    })?;
-
-                let l2_batch_metadata = l2_router.get_l2_batch_metadata(height, &hex::encode(namespace), &commitment).await.map_err(|err| {
-                    tracing::error!(error = ?err, "failed to query l2 batch metadata");
-                    Status::internal("failed to query l2 batch metadata")
-                })?;
-
-                let related_blobs = l2_batch_metadata.related_blobs.iter().map(|blob| CelestiaBlobId {
-                    height: blob.height,
-                    namespace: blob.namespace.clone(),
-                    commitment: blob.commitment.clone(),
-                }).collect();
+                let related_blobs = l2_batch_metadata
+                    .related_blobs
+                    .iter()
+                    .map(|blob| CelestiaBlobId {
+                        height: blob.height,
+                        namespace: blob.namespace.clone(),
+                        commitment: blob.commitment.clone(),
+                    })
+                    .collect();
 
                 Ok(Response::new(CelestiaL2BatchMetadata {
                     chain_id: l2_batch_metadata.chain_id,
@@ -103,7 +90,7 @@ impl Celestia for CelestiaService {
                     l2_end_block: l2_batch_metadata.l2_end_block,
                     l2_blockscout_url: l2_batch_metadata.l2_blockscout_url,
                     l1_tx_hash: l2_batch_metadata.l1_tx_hash,
-                    l1_tx_timestamp: l2_batch_metadata.l1_tx_timestamp ,
+                    l1_tx_timestamp: l2_batch_metadata.l1_tx_timestamp,
                     l2_batch_tx_count: l2_batch_metadata.l2_batch_tx_count,
                     related_blobs,
                 }))

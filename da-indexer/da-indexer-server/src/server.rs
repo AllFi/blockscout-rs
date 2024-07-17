@@ -5,7 +5,7 @@ use crate::{
 };
 use blockscout_service_launcher::{launcher, launcher::LaunchSettings};
 
-use da_indexer_logic::celestia::l2_router::{self, L2Router};
+use da_indexer_logic::celestia::l2_router::L2Router;
 use da_indexer_proto::blockscout::da_indexer::v1::{
     celestia_service_actix::route_celestia_service, celestia_service_server::CelestiaServiceServer,
     eigen_da_service_actix::route_eigen_da_service, eigen_da_service_server::EigenDaServiceServer,

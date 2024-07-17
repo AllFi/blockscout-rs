@@ -1,6 +1,6 @@
 use blockscout_service_launcher::{database, launcher::ConfigSettings};
-use da_indexer_logic::celestia::settings;
-use da_indexer_server::{create_l2_router, run_indexer, run_server, Settings};
+use da_indexer_logic::celestia::l2_router::L2Router;
+use da_indexer_server::{run_indexer, run_server, Settings};
 use migration::Migrator;
 
 const SERVICE_NAME: &str = "da_indexer";
@@ -26,8 +26,8 @@ async fn main() -> Result<(), anyhow::Error> {
     .await?;
 
     let mut l2_router = None;
-    if let Some(l2_router_config) = settings.l2_router_config.clone() {
-        l2_router = Some(create_l2_router(l2_router_config).await?);
+    if let Some(settings) = settings.l2_router.clone() {
+        l2_router = Some(L2Router::from_settings(settings)?);
     }
 
     if let Some(indexer_settings) = settings.indexer.clone() {
