@@ -42,7 +42,7 @@ impl launcher::HttpRouter for Router {
 
 pub async fn run(
     settings: Settings,
-    database_connection: DatabaseConnection,
+    database_connection: Option<DatabaseConnection>,
     l2_router: Option<L2Router>,
 ) -> Result<(), anyhow::Error> {
     let health = Arc::new(HealthService::default());

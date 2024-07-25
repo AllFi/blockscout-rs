@@ -9,11 +9,11 @@ use super::bytes_from_hex_or_base64;
 
 #[derive(Default)]
 pub struct EigenDaService {
-    db: DatabaseConnection,
+    db: Option<DatabaseConnection>,
 }
 
 impl EigenDaService {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Option<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -24,13 +24,17 @@ impl EigenDa for EigenDaService {
         &self,
         request: Request<GetEigenDaBlobRequest>,
     ) -> Result<Response<EigenDaBlob>, Status> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or(Status::internal("database not configured"))?;
         let inner = request.into_inner();
 
         let blob_index = inner.blob_index;
         let batch_header_hash =
             bytes_from_hex_or_base64(&inner.batch_header_hash, "batch header hash")?;
 
-        let blob = blobs::find(&self.db, &batch_header_hash, blob_index as i32)
+        let blob = blobs::find(db, &batch_header_hash, blob_index as i32)
             .await
             .map_err(|err| {
                 tracing::error!(error = ?err, "failed to query blob");

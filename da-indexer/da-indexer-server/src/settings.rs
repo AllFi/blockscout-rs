@@ -19,8 +19,8 @@ pub struct Settings {
     pub tracing: TracingSettings,
     #[serde(default)]
     pub jaeger: JaegerSettings,
-    pub database: DatabaseSettings,
 
+    pub database: Option<DatabaseSettings>,
     pub indexer: Option<IndexerSettings>,
     pub l2_router: Option<L2RouterSettings>,
 }
@@ -36,11 +36,11 @@ impl Settings {
             metrics: Default::default(),
             tracing: Default::default(),
             jaeger: Default::default(),
-            database: DatabaseSettings {
+            database: Some(DatabaseSettings {
                 connect: DatabaseConnectSettings::Url(database_url),
                 create_database: Default::default(),
                 run_migrations: Default::default(),
-            },
+            }),
             indexer: Some(Default::default()),
             l2_router: None,
         }

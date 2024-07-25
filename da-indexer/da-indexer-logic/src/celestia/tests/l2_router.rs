@@ -140,7 +140,7 @@ async fn create_blockscout_mock() -> MockServer {
         )))
         .mount(&mock_server)
         .await;
-    
+
     Mock::given(method("GET"))
         .and(path("api/v2/arbitrum/batches/da/celestia/2282948/0x5f4dece44a8b054de4fd1837c2fc0aef0e68b2f39d55ec0658bfb659ba7bb8e9"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!(

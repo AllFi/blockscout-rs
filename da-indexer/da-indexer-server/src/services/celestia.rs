@@ -11,12 +11,12 @@ use super::bytes_from_hex_or_base64;
 
 #[derive(Default)]
 pub struct CelestiaService {
-    db: DatabaseConnection,
+    db: Option<DatabaseConnection>,
     l2_router: Option<L2Router>,
 }
 
 impl CelestiaService {
-    pub fn new(db: DatabaseConnection, l2_router: Option<L2Router>) -> Self {
+    pub fn new(db: Option<DatabaseConnection>, l2_router: Option<L2Router>) -> Self {
         Self { db, l2_router }
     }
 }
@@ -27,12 +27,16 @@ impl Celestia for CelestiaService {
         &self,
         request: Request<GetCelestiaBlobRequest>,
     ) -> Result<Response<CelestiaBlob>, Status> {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or(Status::internal("database not configured"))?;
         let inner = request.into_inner();
 
         let height = inner.height;
         let commitment = bytes_from_hex_or_base64(&inner.commitment, "commitment")?;
 
-        let blob = blobs::find_by_height_and_commitment(&self.db, height, &commitment)
+        let blob = blobs::find_by_height_and_commitment(db, height, &commitment)
             .await
             .map_err(|err| {
                 tracing::error!(error = ?err, "failed to query blob");
@@ -57,45 +61,44 @@ impl Celestia for CelestiaService {
         &self,
         request: Request<CelestiaBlobId>,
     ) -> Result<Response<CelestiaL2BatchMetadata>, Status> {
-        match self.l2_router {
-            Some(ref l2_router) => {
-                let inner = request.into_inner();
+        let l2_router = self
+            .l2_router
+            .as_ref()
+            .ok_or(Status::internal("l2 router not configured"))?;
+        let inner = request.into_inner();
 
-                let height = inner.height;
-                let commitment = bytes_from_hex_or_base64(&inner.commitment, "commitment")?;
-                let namespace = bytes_from_hex_or_base64(&inner.namespace, "namespace")?;
+        let height = inner.height;
+        let commitment = bytes_from_hex_or_base64(&inner.commitment, "commitment")?;
+        let namespace = bytes_from_hex_or_base64(&inner.namespace, "namespace")?;
 
-                let l2_batch_metadata = l2_router
-                    .get_l2_batch_metadata(height, &namespace, &commitment)
-                    .await
-                    .map_err(|err| {
-                        tracing::error!(error = ?err, "failed to query l2 batch metadata");
-                        Status::internal("failed to query l2 batch metadata")
-                    })?;
+        let l2_batch_metadata = l2_router
+            .get_l2_batch_metadata(height, &namespace, &commitment)
+            .await
+            .map_err(|err| {
+                tracing::error!(error = ?err, "failed to query l2 batch metadata");
+                Status::internal("failed to query l2 batch metadata")
+            })?;
 
-                let related_blobs = l2_batch_metadata
-                    .related_blobs
-                    .iter()
-                    .map(|blob| CelestiaBlobId {
-                        height: blob.height,
-                        namespace: blob.namespace.clone(),
-                        commitment: blob.commitment.clone(),
-                    })
-                    .collect();
+        let related_blobs = l2_batch_metadata
+            .related_blobs
+            .iter()
+            .map(|blob| CelestiaBlobId {
+                height: blob.height,
+                namespace: blob.namespace.clone(),
+                commitment: blob.commitment.clone(),
+            })
+            .collect();
 
-                Ok(Response::new(CelestiaL2BatchMetadata {
-                    chain_id: l2_batch_metadata.chain_id,
-                    l2_batch_id: l2_batch_metadata.l2_batch_id,
-                    l2_start_block: l2_batch_metadata.l2_start_block,
-                    l2_end_block: l2_batch_metadata.l2_end_block,
-                    l2_blockscout_url: l2_batch_metadata.l2_blockscout_url,
-                    l1_tx_hash: l2_batch_metadata.l1_tx_hash,
-                    l1_tx_timestamp: l2_batch_metadata.l1_tx_timestamp,
-                    l2_batch_tx_count: l2_batch_metadata.l2_batch_tx_count,
-                    related_blobs,
-                }))
-            }
-            None => Err(Status::unimplemented("l2 router not configured")),
-        }
+        Ok(Response::new(CelestiaL2BatchMetadata {
+            chain_id: l2_batch_metadata.chain_id,
+            l2_batch_id: l2_batch_metadata.l2_batch_id,
+            l2_start_block: l2_batch_metadata.l2_start_block,
+            l2_end_block: l2_batch_metadata.l2_end_block,
+            l2_blockscout_url: l2_batch_metadata.l2_blockscout_url,
+            l1_tx_hash: l2_batch_metadata.l1_tx_hash,
+            l1_tx_timestamp: l2_batch_metadata.l1_tx_timestamp,
+            l2_batch_tx_count: l2_batch_metadata.l2_batch_tx_count,
+            related_blobs,
+        }))
     }
 }

@@ -15,15 +15,22 @@ async fn main() -> Result<(), anyhow::Error> {
         &settings.jaeger,
     )?;
 
-    let database_url = settings.database.connect.clone().url();
-    let mut connect_options = sea_orm::ConnectOptions::new(&database_url);
-    connect_options.sqlx_logging_level(tracing::log::LevelFilter::Debug);
-    let db_connection = database::initialize_postgres::<Migrator>(
-        connect_options,
-        settings.database.create_database,
-        settings.database.run_migrations,
-    )
-    .await?;
+    let db_connection = match settings.database.clone() {
+        Some(database_settings) => {
+            let database_url = database_settings.connect.clone().url();
+            let mut connect_options = sea_orm::ConnectOptions::new(&database_url);
+            connect_options.sqlx_logging_level(tracing::log::LevelFilter::Debug);
+            Some(
+                database::initialize_postgres::<Migrator>(
+                    connect_options,
+                    database_settings.create_database,
+                    database_settings.run_migrations,
+                )
+                .await?,
+            )
+        }
+        None => None,
+    };
 
     let mut l2_router = None;
     if let Some(settings) = settings.l2_router.clone() {
@@ -31,11 +38,21 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     if let Some(indexer_settings) = settings.indexer.clone() {
+        let db_connection = db_connection.expect("database is required for the indexer");
         run_indexer(indexer_settings, db_connection).await?;
     }
 
-    let db_connection =
-        database::initialize_postgres::<Migrator>(&database_url, false, false).await?;
+    let db_connection = match settings.database.clone() {
+        Some(database_settings) => Some(
+            database::initialize_postgres::<Migrator>(
+                &database_settings.connect.clone().url(),
+                false,
+                false,
+            )
+            .await?,
+        ),
+        None => None,
+    };
 
     run_server(settings, db_connection, l2_router).await
 }
