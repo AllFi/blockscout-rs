@@ -75,8 +75,11 @@ impl Celestia for CelestiaService {
             .get_l2_batch_metadata(height, &namespace, &commitment)
             .await
             .map_err(|err| {
-                tracing::error!(error = ?err, "failed to query l2 batch metadata");
+                tracing::error!(height, namespace = hex::encode(&namespace), commitment = hex::encode(&commitment), error = ?err, "failed to query l2 batch metadata");
                 Status::internal("failed to query l2 batch metadata")
+            })?
+            .ok_or_else(|| {
+                Status::not_found("l2 batch metadata not found")
             })?;
 
         let related_blobs = l2_batch_metadata

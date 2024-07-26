@@ -3,7 +3,7 @@ mod optimism;
 pub mod settings;
 pub mod types;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use blockscout_display_bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use settings::L2RouterSettings;
@@ -34,12 +34,14 @@ impl L2Router {
         height: u64,
         namespace: &[u8],
         commitment: &[u8],
-    ) -> Result<L2BatchMetadata> {
+    ) -> Result<Option<L2BatchMetadata>> {
         let namespace = Bytes::from(namespace.to_vec()).to_string();
-        let config = self
-            .routes
-            .get(&namespace)
-            .ok_or_else(|| anyhow!("unknown namespace: {}", namespace))?;
+        let config = self.routes.get(&namespace);
+        if config.is_none() {
+            tracing::debug!("unknown namespace: {}", &namespace);
+            return Ok(None);
+        }
+        let config = config.unwrap();
 
         match config.chain_type {
             L2Type::Optimism => optimism::get_l2_batch(config, height, commitment).await,

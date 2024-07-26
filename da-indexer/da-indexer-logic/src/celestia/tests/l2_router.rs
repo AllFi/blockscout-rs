@@ -25,6 +25,7 @@ async fn test_optimism_router() {
             &commitment,
         )
         .await
+        .unwrap()
         .unwrap();
 
     assert_eq!(batch_metadata.chain_type, L2Type::Optimism);
@@ -59,6 +60,7 @@ async fn test_arbitrum_router() {
             &commitment,
         )
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(batch_metadata.chain_type, L2Type::Arbitrum);
     assert_eq!(batch_metadata.chain_id, 123);

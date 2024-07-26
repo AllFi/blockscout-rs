@@ -1,7 +1,10 @@
+use std::time::Duration;
+
 use super::{types::L2BatchMetadata, L2Config};
 use anyhow::Result;
 use blockscout_display_bytes::Bytes;
 use chrono::DateTime;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -29,21 +32,24 @@ pub async fn get_l2_batch(
     config: &L2Config,
     height: u64,
     commitment: &[u8],
-) -> Result<L2BatchMetadata> {
+) -> Result<Option<L2BatchMetadata>> {
     let commitment = Bytes::from(commitment.to_vec()).to_string();
     let query = format!(
         "{}/api/v2/optimism/batches/da/celestia/{}/{}",
         config.l2_api_url, height, commitment,
     );
-    let response: L2BatchOptimism = reqwest::get(&query).await?.json().await?;
-    parse_l2_batch_metadata(&commitment, &response, config)
-}
+    let timeout = Duration::from_secs(5);
+    let response = Client::new().get(&query).timeout(timeout).send().await?;
+    if response.status() == StatusCode::NOT_FOUND {
+        tracing::debug!(
+            height,
+            commitment = hex::encode(&commitment),
+            "l2 batch metadata not found"
+        );
+        return Ok(None);
+    }
+    let response: L2BatchOptimism = response.json().await?;
 
-fn parse_l2_batch_metadata(
-    commitment: &str,
-    response: &L2BatchOptimism,
-    config: &L2Config,
-) -> Result<L2BatchMetadata> {
     let related_blobs = response
         .blobs
         .iter()
@@ -55,7 +61,7 @@ fn parse_l2_batch_metadata(
         })
         .collect();
 
-    Ok(L2BatchMetadata {
+    Ok(Some(L2BatchMetadata {
         chain_type: super::types::L2Type::Optimism,
         chain_id: config.chain_id,
         l2_batch_id: response.internal_id.to_string(),
@@ -66,5 +72,5 @@ fn parse_l2_batch_metadata(
         l1_tx_hash: response.l1_tx_hashes[0].clone(),
         l1_tx_timestamp: DateTime::parse_from_rfc3339(&response.l1_timestamp)?.timestamp() as u64,
         related_blobs,
-    })
+    }))
 }
